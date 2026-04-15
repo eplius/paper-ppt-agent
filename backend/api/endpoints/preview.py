@@ -1,0 +1,89 @@
+"""Preview endpoint for generated SVG slides."""
+
+from pathlib import Path
+
+from fastapi import APIRouter, HTTPException, status
+
+from backend.api.schemas import PreviewResponse, PreviewSlide
+from backend.config import settings
+from backend.generator.project_manager import get_svg_files
+from backend.generator.svg_finalize.render_ready import prepare_svg_file_for_render
+from backend.session.manager import session_manager
+
+router = APIRouter()
+
+
+@router.get("/preview/{job_id}", response_model=PreviewResponse)
+async def get_preview(job_id: str) -> PreviewResponse:
+    job = session_manager.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found.")
+
+    normalized_status = "complete" if job.output_path and Path(job.output_path).exists() else job.status
+    return _build_preview_response(job_id, Path(job.project_dir) if job.project_dir else None, job.output_path, normalized_status)
+
+
+@router.get("/preview-project", response_model=PreviewResponse)
+async def get_project_preview(project_dir: str) -> PreviewResponse:
+    resolved_project_dir = _resolve_workspace_path(project_dir)
+    if resolved_project_dir is None or not resolved_project_dir.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found.")
+
+    output_path = _find_latest_output(resolved_project_dir)
+    return _build_preview_response(
+        job_id=resolved_project_dir.name,
+        project_dir=resolved_project_dir,
+        output_path=str(output_path) if output_path else None,
+        status_value="complete" if output_path else "unknown",
+    )
+
+
+def _build_preview_response(
+    job_id: str,
+    project_dir: Path | None,
+    output_path: str | None,
+    status_value: str,
+) -> PreviewResponse:
+    slides: list[PreviewSlide] = []
+    if project_dir:
+        slide_files = get_svg_files(project_dir, "final") or get_svg_files(project_dir, "output")
+        source = "final" if get_svg_files(project_dir, "final") else "output"
+        for index, svg_path in enumerate(slide_files, start=1):
+            prepared_path = prepare_svg_file_for_render(svg_path)
+            try:
+                content = prepared_path.read_text(encoding="utf-8")
+            finally:
+                prepared_path.unlink(missing_ok=True)
+            slides.append(
+                PreviewSlide(
+                    index=index,
+                    name=svg_path.stem,
+                    source=source,
+                    content=content,
+                )
+            )
+
+    return PreviewResponse(
+        job_id=job_id,
+        project_dir=str(project_dir) if project_dir else None,
+        slides=slides,
+        output_path=output_path,
+        status=status_value,
+    )
+
+
+def _resolve_workspace_path(raw_path: str) -> Path | None:
+    try:
+        resolved = Path(raw_path).resolve()
+        resolved.relative_to(settings.workspaces_dir.resolve())
+    except (OSError, ValueError):
+        return None
+    return resolved
+
+
+def _find_latest_output(project_dir: Path) -> Path | None:
+    exports_dir = project_dir / "exports"
+    if not exports_dir.exists():
+        return None
+    candidates = sorted(exports_dir.glob("*.pptx"), key=lambda path: path.stat().st_mtime, reverse=True)
+    return candidates[0] if candidates else None

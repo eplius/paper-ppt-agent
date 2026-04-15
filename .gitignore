@@ -1,0 +1,65 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# uv
+.python-version
+.uv-cache/
+
+# Environment variables
+.env
+.env.local
+.env.production
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Project runtime
+workspaces/
+.runtime/
+.tmp/
+.omc/
+.claude/
+frontend/.omc/
+Starting
+Syncing
+Installing
+*.pptx
+*.pdf
+
+# Node / Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.cache/
+*.tsbuildinfo
+
+# Testing
+.pytest_cache/
+.pytest_tmp/
+.test-runtime/
+pytest-cache-files-*/
+htmlcov/
+.coverage
+
+# Logs
+*.log

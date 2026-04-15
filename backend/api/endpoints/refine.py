@@ -1,0 +1,126 @@
+"""Refine endpoint — iterate on an existing generation with user feedback."""
+
+from __future__ import annotations
+
+import asyncio
+from typing import Any
+
+from fastapi import APIRouter, HTTPException, status
+
+from backend.api.schemas import RefineRequest, RefineResponse
+from backend.session.manager import session_manager
+from backend.session.progress import payloads_from_progress_event
+
+router = APIRouter()
+
+
+async def _run_refine_job(job_id: str, request: Any) -> None:
+    from backend.orchestrator.pipeline import ProgressEvent, run_refine_pipeline
+
+    job = session_manager.get_job(job_id)
+    if job is None:
+        return
+
+    project_dir = job.project_dir
+    if not project_dir:
+        return
+
+    # Acquire per-project lock so concurrent refine calls for the same project
+    # are serialised and don't corrupt svg_final/.
+    lock = session_manager.get_project_lock(project_dir)
+    async with lock:
+        try:
+            async for event in run_refine_pipeline(request):
+                current_job = session_manager.get_job(job_id)
+                if current_job is None:
+                    return
+                for payload, updates in payloads_from_progress_event(
+                    job_id, current_job, event
+                ):
+                    session_manager.record_event(job_id, payload, **updates)
+        except Exception as exc:
+            current_job = session_manager.get_job(job_id)
+            if current_job is None:
+                return
+            from backend.orchestrator.pipeline import ProgressEvent
+            error_event = ProgressEvent("error", "error", str(exc), current_job.progress)
+            for payload, updates in payloads_from_progress_event(
+                job_id, current_job, error_event
+            ):
+                session_manager.record_event(job_id, payload, **updates)
+
+
+@router.post("/refine", response_model=RefineResponse)
+async def refine_presentation(request: RefineRequest) -> RefineResponse:
+    """Start a refine iteration on an existing completed job.
+
+    The refine pipeline reuses the project directory of the parent job —
+    it skips PDF/LaTeX parsing, the research agent, and the strategist,
+    and re-runs only SVG generation (with updated feedback), finalization,
+    and PPTX export.
+    """
+    parent_job = session_manager.get_job(request.job_id)
+    if parent_job is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Job '{request.job_id}' not found.",
+        )
+    if not parent_job.project_dir:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Parent job has no project directory — cannot refine.",
+        )
+    if parent_job.status not in ("complete",):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Parent job status is '{parent_job.status}'; refine requires a completed job.",
+        )
+
+    job = session_manager.create_refine_job(
+        parent_job_id=request.job_id,
+        feedback=request.feedback,
+    )
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create refine job.",
+        )
+
+    options = request.options
+    session_manager.update_job(
+        job.id,
+        status="pending",
+        message="Queued for refinement",
+        provider=request.model_settings.provider,
+        model_name=request.model_settings.model,
+        base_url=request.model_settings.base_url,
+        canvas_format=options.canvas_format or parent_job.canvas_format,
+        style=options.style or parent_job.style,
+        language=options.language or parent_job.language,
+        detail_level=options.detail_level or parent_job.detail_level,
+        instruction=parent_job.instruction,
+    )
+
+    # Build a lightweight request object for the refine pipeline
+    from backend.orchestrator.pipeline import RefineRequest as PipelineRefineRequest
+
+    pipeline_request = PipelineRefineRequest(
+        project_dir=parent_job.project_dir,
+        feedback=request.feedback,
+        feedback_history=job.feedback_history,
+        job_id=job.id,
+        parent_job_id=request.job_id,
+        provider=request.model_settings.provider,
+        model=request.model_settings.model,
+        api_key=request.model_settings.api_key,
+        base_url=request.model_settings.base_url,
+        canvas_format=options.canvas_format or parent_job.canvas_format or "ppt169",
+        style=options.style or parent_job.style or "academic",
+        language=options.language or parent_job.language or "en",
+        detail_level=options.detail_level or parent_job.detail_level or "normal",
+        target_pages=request.target_pages,
+        allow_structure_changes=request.allow_structure_changes,
+    )
+
+    asyncio.create_task(_run_refine_job(job.id, pipeline_request))
+    return RefineResponse(job_id=job.id, status="started")
