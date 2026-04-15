@@ -5,6 +5,7 @@ import type {
   JobStatus,
   PreviewResponse,
   ProvidersResponse,
+  ReexportResponse,
   RefineRequestPayload,
   RefineResponse,
   UploadResponse,
@@ -53,6 +54,12 @@ export async function fetchJobStatus(jobId: string): Promise<JobStatus> {
 
 export async function cancelJob(jobId: string): Promise<CancelJobResponse> {
   return request<CancelJobResponse>(`/api/status/${jobId}/cancel`, {
+    method: "POST",
+  });
+}
+
+export async function reexportPresentation(jobId: string): Promise<ReexportResponse> {
+  return request<ReexportResponse>(`/api/download/${jobId}/reexport`, {
     method: "POST",
   });
 }

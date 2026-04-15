@@ -23,7 +23,10 @@ TEXT_STYLE_ATTRS = {
 }
 
 MERGE_X_TOLERANCE = 1.0
-MERGE_Y_TOLERANCE = 6.0
+# LLM-generated inline formulas often place subscripts/superscripts about
+# 7-9 px above the main baseline. Keep enough tolerance to fold those runs
+# back into one logical line without merging genuinely separate body lines.
+MERGE_Y_TOLERANCE = 10.0
 
 
 def merge_adjacent_text_in_svg(svg_path: Path) -> int:

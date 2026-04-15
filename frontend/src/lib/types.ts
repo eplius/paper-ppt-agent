@@ -67,6 +67,12 @@ export interface CancelJobResponse {
   status: string;
 }
 
+export interface ReexportResponse {
+  job_id: string;
+  status: string;
+  output_path: string;
+}
+
 export interface PreviewSlide {
   index: number;
   name: string;

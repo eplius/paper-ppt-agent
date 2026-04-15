@@ -7,7 +7,7 @@ import { AgentLog } from "../components/progress/AgentLog";
 import { ProgressPanel } from "../components/progress/ProgressPanel";
 import { useGeneration } from "../hooks/useGeneration";
 import { useLocale } from "../i18n";
-import { fetchJobStatus, fetchPreview, fetchProjectPreview, getDownloadUrl, getDownloadUrlForOutput } from "../lib/api";
+import { fetchJobStatus, fetchPreview, fetchProjectPreview, getDownloadUrl, getDownloadUrlForOutput, reexportPresentation } from "../lib/api";
 import type { GenerateRequestPayload, GenerationHistoryItem, JobStatus, PreviewResponse, PreviewSlide } from "../lib/types";
 
 // Routing profile stored by GeneratePage so we can re-use model config here.
@@ -81,6 +81,8 @@ export function ResultPage() {
   const [refineError, setRefineError] = useState<string | null>(null);
   const [targetPagesText, setTargetPagesText] = useState("");
   const [allowStructureChanges, setAllowStructureChanges] = useState(false);
+  const [reexportLoading, setReexportLoading] = useState(false);
+  const [reexportError, setReexportError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!jobId || jobId !== activeJobId) {
@@ -108,7 +110,12 @@ export function ResultPage() {
         const [nextResult, nextJob] = canLoadFromProject
           ? await Promise.all([
               fetchProjectPreview(projectDir!),
-              Promise.resolve(entry ? buildStoredJob(entry) : null),
+              fetchJobStatus(currentJobId).catch(() => {
+                if (!entry) {
+                  throw new Error("Job not found.");
+                }
+                return buildStoredJob(entry);
+              }),
             ])
           : await Promise.all([
               fetchPreview(currentJobId).catch(async () => {
@@ -231,6 +238,46 @@ export function ResultPage() {
     }
   };
 
+  const handleReexport = async () => {
+    if (!jobId) return;
+    setReexportLoading(true);
+    setReexportError(null);
+    try {
+      const response = await reexportPresentation(jobId);
+      setJob((current) =>
+        current
+          ? {
+              ...current,
+              status: response.status,
+              output_path: response.output_path,
+              error: null,
+            }
+          : {
+              status: response.status,
+              progress: 1,
+              message: "",
+              slides_completed: slides.length,
+              total_slides: slides.length,
+              output_path: response.output_path,
+              error: null,
+            },
+      );
+      setResult((current) =>
+        current
+          ? {
+              ...current,
+              output_path: response.output_path,
+              status: response.status,
+            }
+          : current,
+      );
+    } catch (err) {
+      setReexportError(err instanceof Error ? err.message : "Re-export failed.");
+    } finally {
+      setReexportLoading(false);
+    }
+  };
+
   return (
     <Layout contentClassName="result-page">
       <section className="result-hero">
@@ -255,6 +302,14 @@ export function ResultPage() {
               {t("result.download")}
             </a>
           ) : null}
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => void handleReexport()}
+            disabled={!jobId || reexportLoading}
+          >
+            {reexportLoading ? t("result.reexportLoading") : t("result.reexport")}
+          </button>
         </div>
       </section>
 
@@ -288,6 +343,7 @@ export function ResultPage() {
       </section>
 
       {loadError ? <p className="error-text">{loadError}</p> : null}
+      {reexportError ? <p className="error-text">{reexportError}</p> : null}
 
       {/* ── Feedback / Refine section ── */}
       <section className="result-refine">

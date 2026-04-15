@@ -58,6 +58,12 @@ class CancelJobResponse(BaseModel):
     status: str
 
 
+class ReexportResponse(BaseModel):
+    job_id: str
+    status: str
+    output_path: str
+
+
 class PreviewSlide(BaseModel):
     index: int
     name: str
