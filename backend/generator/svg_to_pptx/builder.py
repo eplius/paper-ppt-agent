@@ -12,6 +12,7 @@ import zipfile
 import json
 import uuid
 from pathlib import Path
+import xml.etree.ElementTree as ET
 
 from pptx import Presentation
 from pptx.util import Emu
@@ -77,10 +78,13 @@ def create_pptx(
 
         # Convert each SVG and inject into the PPTX
         all_media_types: set[str] = set()
+        used_media_names: set[str] = set()
         conversion_report: list[dict[str, str | int]] = []
+        audit_rows: list[dict[str, object]] = []
         for i, svg_path in enumerate(svg_files):
             slide_num = i + 1
             prepared_svg_path = prepare_svg_file_for_render(svg_path)
+            source_metrics = _analyze_svg_source(svg_path)
             try:
                 try:
                     slide_xml, media_files, rel_entries = convert_svg_to_slide_shapes(
@@ -107,6 +111,26 @@ def create_pptx(
                     })
             finally:
                 prepared_svg_path.unlink(missing_ok=True)
+
+            media_files, rel_entries = _ensure_unique_media_names(
+                media_files,
+                rel_entries,
+                used_media_names,
+                slide_num,
+            )
+            output_metrics = _analyze_slide_xml(slide_xml, fmt["width"], fmt["height"])
+            findings = _evaluate_export_audit(
+                source_metrics=source_metrics,
+                output_metrics=output_metrics,
+                conversion_mode=str(conversion_report[-1]["mode"]),
+            )
+            audit_rows.append({
+                "slide": slide_num,
+                "svg": svg_path.name,
+                "source_metrics": source_metrics,
+                "output_metrics": output_metrics,
+                "findings": findings,
+            })
 
             # Write slide XML
             slide_file = extract_dir / "ppt" / "slides" / f"slide{slide_num}.xml"
@@ -139,6 +163,21 @@ def create_pptx(
         _zip_pptx(extract_dir, output_path)
         report_path = output_path.with_suffix(".conversion_report.json")
         report_path.write_text(json.dumps(conversion_report, ensure_ascii=False, indent=2), encoding="utf-8")
+        audit_path = output_path.with_suffix(".export_audit.json")
+        audit_summary = {
+            "slides": len(audit_rows),
+            "blocking_slides": sum(1 for row in audit_rows if row["findings"]),
+            "status": "failed" if any(row["findings"] for row in audit_rows) else "passed",
+        }
+        audit_path.write_text(
+            json.dumps({"summary": audit_summary, "slides": audit_rows}, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        if audit_summary["blocking_slides"]:
+            raise RuntimeError(
+                f"Export audit failed for {audit_summary['blocking_slides']} slide(s). "
+                f"See {audit_path.name} for details."
+            )
 
         return output_path
     finally:
@@ -218,6 +257,144 @@ def _rasterize_svg_to_png(svg_path: Path) -> bytes:
     if drawing is None:
         raise ValueError(f"Failed to load SVG drawing for fallback: {svg_path.name}")
     return renderPM.drawToString(drawing, fmt="PNG")
+
+
+def _ensure_unique_media_names(
+    media_files: dict[str, bytes],
+    rel_entries: list[dict],
+    used_media_names: set[str],
+    slide_num: int,
+) -> tuple[dict[str, bytes], list[dict]]:
+    """Rename media defensively so later slides cannot overwrite earlier ones."""
+    if not media_files:
+        return media_files, rel_entries
+
+    renamed: dict[str, bytes] = {}
+    target_map: dict[str, str] = {}
+
+    for original_name, payload in media_files.items():
+        candidate = original_name
+        stem, dot, suffix = original_name.rpartition(".")
+        base = stem or original_name
+        ext = f".{suffix}" if dot else ""
+        counter = 1
+
+        while candidate in used_media_names or candidate in renamed:
+            candidate = f"slide{slide_num}_{base}_{counter}{ext}"
+            counter += 1
+
+        renamed[candidate] = payload
+        used_media_names.add(candidate)
+        if candidate != original_name:
+            target_map[f"../media/{original_name}"] = f"../media/{candidate}"
+
+    if target_map:
+        rel_entries = [
+            {**entry, "target": target_map.get(entry["target"], entry["target"])}
+            for entry in rel_entries
+        ]
+
+    return renamed, rel_entries
+
+
+def _analyze_svg_source(svg_path: Path) -> dict[str, int]:
+    """Collect simple structural metrics from the source SVG."""
+    try:
+        root = ET.parse(svg_path).getroot()
+    except ET.ParseError:
+        return {
+            "text_nodes": 0,
+            "image_nodes": 0,
+            "graphic_nodes": 0,
+        }
+
+    counts = {
+        "text_nodes": 0,
+        "image_nodes": 0,
+        "graphic_nodes": 0,
+    }
+    graphic_tags = {"rect", "path", "circle", "ellipse", "line", "polygon", "polyline"}
+    for elem in root.iter():
+        tag = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
+        if tag == "text":
+            counts["text_nodes"] += 1
+        elif tag == "image":
+            counts["image_nodes"] += 1
+        elif tag in graphic_tags:
+            counts["graphic_nodes"] += 1
+    return counts
+
+
+def _analyze_slide_xml(slide_xml: str, width_px: int, height_px: int) -> dict[str, int]:
+    """Collect structural metrics from exported slide XML."""
+    ns = {
+        "a": "http://schemas.openxmlformats.org/drawingml/2006/main",
+        "p": "http://schemas.openxmlformats.org/presentationml/2006/main",
+    }
+    root = ET.fromstring(slide_xml)
+    pictures = root.findall(".//p:pic", ns)
+    text_boxes = root.findall(".//p:txBody", ns)
+    shapes = root.findall(".//p:sp", ns)
+    connectors = root.findall(".//p:cxnSp", ns)
+    width_emu = px_to_emu(width_px)
+    height_emu = px_to_emu(height_px)
+
+    full_slide_pictures = 0
+    for pic in pictures:
+        ext = pic.find(".//a:xfrm/a:ext", ns)
+        off = pic.find(".//a:xfrm/a:off", ns)
+        if ext is None or off is None:
+            continue
+        if (
+            int(ext.get("cx", "0")) == width_emu
+            and int(ext.get("cy", "0")) == height_emu
+            and int(off.get("x", "0")) == 0
+            and int(off.get("y", "0")) == 0
+        ):
+            full_slide_pictures += 1
+
+    return {
+        "pictures": len(pictures),
+        "full_slide_pictures": full_slide_pictures,
+        "shape_nodes": len(shapes),
+        "text_boxes": len(text_boxes),
+        "connector_nodes": len(connectors),
+    }
+
+
+def _evaluate_export_audit(
+    *,
+    source_metrics: dict[str, int],
+    output_metrics: dict[str, int],
+    conversion_mode: str,
+) -> list[str]:
+    """Return blocking findings when export structure looks suspicious."""
+    findings: list[str] = []
+
+    if conversion_mode == "fallback_image":
+        findings.append("slide used raster fallback export")
+
+    if source_metrics["text_nodes"] > 0 and output_metrics["text_boxes"] == 0:
+        findings.append("source SVG contains text but exported slide has no text boxes")
+
+    if output_metrics["shape_nodes"] == 0 and output_metrics["pictures"] == 0:
+        findings.append("exported slide contains no shapes or pictures")
+
+    if (
+        source_metrics["graphic_nodes"] >= 8
+        and output_metrics["shape_nodes"] <= 3
+        and output_metrics["pictures"] >= 1
+    ):
+        findings.append("complex SVG collapsed into too few exported objects")
+
+    if (
+        source_metrics["image_nodes"] == 0
+        and output_metrics["full_slide_pictures"] >= 1
+        and output_metrics["text_boxes"] == 0
+    ):
+        findings.append("slide appears to be a full-slide picture without editable text")
+
+    return findings
 
 
 def _add_notes(extract_dir: Path, slide_num: int, notes_text: str) -> None:

@@ -1,4 +1,5 @@
 import type {
+  CancelJobResponse,
   GenerateRequestPayload,
   GenerateResponse,
   JobStatus,
@@ -48,6 +49,12 @@ export async function generatePresentation(
 
 export async function fetchJobStatus(jobId: string): Promise<JobStatus> {
   return request<JobStatus>(`/api/status/${jobId}`);
+}
+
+export async function cancelJob(jobId: string): Promise<CancelJobResponse> {
+  return request<CancelJobResponse>(`/api/status/${jobId}/cancel`, {
+    method: "POST",
+  });
 }
 
 export async function fetchPreview(jobId: string): Promise<PreviewResponse> {

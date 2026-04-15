@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import { fetchJobStatus, fetchPreview, fetchProjectPreview, fetchProviders, generatePresentation, refinePresentation, uploadPaper } from "../lib/api";
+import { cancelJob, fetchJobStatus, fetchPreview, fetchProjectPreview, fetchProviders, generatePresentation, refinePresentation, uploadPaper } from "../lib/api";
 import type {
   GenerateRequestPayload,
   GenerationOptions,
@@ -16,8 +16,10 @@ import type {
 import { openJobSocket } from "../lib/ws";
 
 type ConnectionStatus = "disconnected" | "connecting" | "connected";
-const FINAL_JOB_STATUSES = new Set(["complete", "error"]);
+const FINAL_JOB_STATUSES = new Set(["complete", "error", "cancelled"]);
 const HISTORY_LIMIT = 8;
+const LEGACY_GENERATION_STORAGE_KEY = "paper-ppt-agent-generation-v1";
+const GENERATION_STORAGE_KEY = "paper-ppt-agent-generation-v2";
 
 interface RunConfigSnapshot {
   provider: string;
@@ -25,6 +27,19 @@ interface RunConfigSnapshot {
   baseUrl?: string;
   options: GenerationOptions;
   parentJobId?: string | null;
+}
+
+interface RunSnapshot {
+  jobId: string;
+  uploadSession?: UploadResponse;
+  job?: JobStatus;
+  slides: PreviewSlide[];
+  logs: string[];
+  selectedSlide?: PreviewSlide;
+  error?: string;
+  result?: PreviewResponse;
+  currentRunConfig?: RunConfigSnapshot;
+  connectionStatus: ConnectionStatus;
 }
 
 interface GenerationState {
@@ -39,19 +54,20 @@ interface GenerationState {
   error?: string;
   result?: PreviewResponse;
   history: GenerationHistoryItem[];
+  runs: Record<string, RunSnapshot>;
   activeJobId?: string;
   currentRunConfig?: RunConfigSnapshot;
-  socket?: WebSocket;
+  socketsByJob: Record<string, WebSocket>;
   loadProviders: () => Promise<void>;
   uploadFile: (file: File) => Promise<void>;
   startGeneration: (payload: GenerateRequestPayload) => Promise<string>;
   startRefine: (payload: RefineRequestPayload) => Promise<string>;
   connect: (jobId: string) => void;
   hydrateResult: (jobId: string) => Promise<void>;
-  resumeCurrentRun: () => Promise<boolean>;
+  resumeCurrentRun: (targetJobId?: string) => Promise<boolean>;
   selectSlide: (slide?: PreviewSlide) => void;
-  syncHistory: () => void;
-  removeHistory: (jobId: string) => void;
+  syncHistory: (jobId?: string) => void;
+  removeHistory: (jobId: string) => Promise<void>;
   reset: () => void;
 }
 
@@ -80,36 +96,36 @@ function upsertHistoryItem(history: GenerationHistoryItem[], item: GenerationHis
     .slice(0, HISTORY_LIMIT);
 }
 
-function buildHistoryItem(state: Pick<GenerationState, "history" | "jobId" | "uploadSession" | "job" | "slides" | "result" | "currentRunConfig">) {
-  if (!state.jobId) {
+function buildHistoryItemFromRun(history: GenerationHistoryItem[], run?: RunSnapshot) {
+  if (!run) {
     return undefined;
   }
 
-  const existing = state.history.find((entry) => entry.jobId === state.jobId);
+  const existing = history.find((entry) => entry.jobId === run.jobId);
   const slideCount = Math.max(
-    state.slides.length,
-    state.result?.slides.length ?? 0,
-    state.job?.slides_completed ?? 0,
+    run.slides.length,
+    run.result?.slides.length ?? 0,
+    run.job?.slides_completed ?? 0,
     existing?.slideCount ?? 0,
   );
 
   return {
-    jobId: state.jobId,
-    fileName: state.uploadSession?.file_info.name ?? existing?.fileName ?? state.jobId,
-    sourceType: state.uploadSession?.file_info.source_type ?? existing?.sourceType,
-    status: state.result?.status ?? state.job?.status ?? existing?.status ?? "pending",
+    jobId: run.jobId,
+    fileName: run.uploadSession?.file_info.name ?? existing?.fileName ?? run.jobId,
+    sourceType: run.uploadSession?.file_info.source_type ?? existing?.sourceType,
+    status: run.result?.status ?? run.job?.status ?? existing?.status ?? "pending",
     slideCount,
     updatedAt: new Date().toISOString(),
     projectDir:
-      state.result?.project_dir ??
+      run.result?.project_dir ??
       existing?.projectDir ??
-      deriveProjectDirFromOutputPath(state.job?.output_path ?? state.result?.output_path ?? existing?.outputPath),
-    outputPath: state.job?.output_path ?? state.result?.output_path ?? existing?.outputPath ?? null,
-    provider: state.currentRunConfig?.provider ?? existing?.provider,
-    model: state.currentRunConfig?.model ?? existing?.model,
-    baseUrl: state.currentRunConfig?.baseUrl ?? existing?.baseUrl,
-    options: state.currentRunConfig?.options ?? existing?.options,
-    parentJobId: state.currentRunConfig?.parentJobId ?? existing?.parentJobId ?? null,
+      deriveProjectDirFromOutputPath(run.job?.output_path ?? run.result?.output_path ?? existing?.outputPath),
+    outputPath: run.job?.output_path ?? run.result?.output_path ?? existing?.outputPath ?? null,
+    provider: run.currentRunConfig?.provider ?? existing?.provider,
+    model: run.currentRunConfig?.model ?? existing?.model,
+    baseUrl: run.currentRunConfig?.baseUrl ?? existing?.baseUrl,
+    options: run.currentRunConfig?.options ?? existing?.options,
+    parentJobId: run.currentRunConfig?.parentJobId ?? existing?.parentJobId ?? null,
   } satisfies GenerationHistoryItem;
 }
 
@@ -149,6 +165,74 @@ function buildStoredJob(historyItem: GenerationHistoryItem, result?: PreviewResp
   };
 }
 
+function createRunSnapshot(
+  jobId: string,
+  params?: Partial<Omit<RunSnapshot, "jobId" | "slides" | "logs" | "connectionStatus">> & {
+    slides?: PreviewSlide[];
+    logs?: string[];
+    connectionStatus?: ConnectionStatus;
+  },
+): RunSnapshot {
+  return {
+    jobId,
+    uploadSession: params?.uploadSession,
+    job: params?.job,
+    slides: params?.slides ?? [],
+    logs: params?.logs ?? [],
+    selectedSlide: params?.selectedSlide,
+    error: params?.error,
+    result: params?.result,
+    currentRunConfig: params?.currentRunConfig,
+    connectionStatus: params?.connectionStatus ?? "disconnected",
+  };
+}
+
+function applyRunToCurrent(run?: RunSnapshot) {
+  if (!run) {
+    return {};
+  }
+  return {
+    uploadSession: run.uploadSession,
+    jobId: run.jobId,
+    job: run.job,
+    slides: run.slides,
+    logs: run.logs,
+    selectedSlide: run.selectedSlide,
+    connectionStatus: run.connectionStatus,
+    error: run.error,
+    result: run.result,
+    activeJobId: run.job && FINAL_JOB_STATUSES.has(run.job.status) ? undefined : run.jobId,
+    currentRunConfig: run.currentRunConfig,
+  };
+}
+
+function clearLegacyGenerationStorage() {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    window.localStorage.removeItem(LEGACY_GENERATION_STORAGE_KEY);
+  } catch {
+    // ignore storage cleanup failures
+  }
+}
+
+function serializeRunsForStorage(runs: Record<string, RunSnapshot>) {
+  return Object.fromEntries(
+    Object.entries(runs).map(([jobId, run]) => [
+      jobId,
+      {
+        jobId,
+        uploadSession: run.uploadSession,
+        job: run.job,
+        error: run.error,
+        currentRunConfig: run.currentRunConfig,
+        connectionStatus: "disconnected" as const,
+      } satisfies Partial<RunSnapshot> & { jobId: string; connectionStatus: ConnectionStatus },
+    ]),
+  );
+}
+
 export const useGeneration = create<GenerationState>()(
   persist(
     (set, get) => ({
@@ -157,6 +241,8 @@ export const useGeneration = create<GenerationState>()(
       logs: [],
       connectionStatus: "disconnected",
       history: [],
+      runs: {},
+      socketsByJob: {},
       async loadProviders() {
         const response = await fetchProviders();
         set({ providers: response.providers });
@@ -167,9 +253,8 @@ export const useGeneration = create<GenerationState>()(
       },
       async startGeneration(payload) {
         const response = await generatePresentation(payload);
-        set({
-          jobId: response.job_id,
-          activeJobId: response.job_id,
+        const run = createRunSnapshot(response.job_id, {
+          uploadSession: get().uploadSession,
           job: {
             status: response.status,
             progress: 0,
@@ -177,11 +262,7 @@ export const useGeneration = create<GenerationState>()(
             slides_completed: 0,
             total_slides: 0,
           },
-          slides: [],
           logs: ["[generate] Generation started"],
-          error: undefined,
-          result: undefined,
-          selectedSlide: undefined,
           currentRunConfig: {
             provider: payload.model_config.provider,
             model: payload.model_config.model,
@@ -189,16 +270,35 @@ export const useGeneration = create<GenerationState>()(
             options: payload.options,
             parentJobId: null,
           },
+          error: undefined,
+          result: undefined,
+          selectedSlide: undefined,
         });
+        set((state) => ({
+          ...applyRunToCurrent(run),
+          runs: {
+            ...state.runs,
+            [response.job_id]: run,
+          },
+        }));
         sessionStorage.setItem(`paper-ppt-live-job:${response.job_id}`, "1");
-        get().syncHistory();
+        get().syncHistory(response.job_id);
         return response.job_id;
       },
       async startRefine(payload) {
         const response = await refinePresentation(payload);
-        set({
-          jobId: response.job_id,
-          activeJobId: response.job_id,
+        const existingParent = get().history.find((entry) => entry.jobId === payload.job_id);
+        const run = createRunSnapshot(response.job_id, {
+          uploadSession: existingParent?.sourceType
+            ? {
+                session_id: payload.job_id,
+                file_info: {
+                  name: existingParent.fileName,
+                  size: 0,
+                  source_type: existingParent.sourceType,
+                },
+              }
+            : undefined,
           job: {
             status: response.status,
             progress: 0,
@@ -206,11 +306,7 @@ export const useGeneration = create<GenerationState>()(
             slides_completed: 0,
             total_slides: 0,
           },
-          slides: [],
           logs: ["[refine] Refinement started"],
-          error: undefined,
-          result: undefined,
-          selectedSlide: undefined,
           currentRunConfig: {
             provider: payload.model_config.provider,
             model: payload.model_config.model,
@@ -218,24 +314,65 @@ export const useGeneration = create<GenerationState>()(
             options: payload.options,
             parentJobId: payload.job_id,
           },
+          error: undefined,
+          result: undefined,
+          selectedSlide: undefined,
         });
+        set((state) => ({
+          ...applyRunToCurrent(run),
+          runs: {
+            ...state.runs,
+            [response.job_id]: run,
+          },
+        }));
         sessionStorage.setItem(`paper-ppt-live-job:${response.job_id}`, "1");
-        get().syncHistory();
+        get().syncHistory(response.job_id);
         return response.job_id;
       },
       connect(jobId) {
-        get().socket?.close();
-        set({ connectionStatus: "connecting", jobId, activeJobId: jobId });
+        const existingSocket = get().socketsByJob[jobId];
+        const existingRun = get().runs[jobId];
+
+        if (existingSocket && (existingSocket.readyState === WebSocket.OPEN || existingSocket.readyState === WebSocket.CONNECTING)) {
+          set((state) => ({
+            ...applyRunToCurrent({
+              ...(existingRun ?? createRunSnapshot(jobId)),
+              connectionStatus: existingSocket.readyState === WebSocket.OPEN ? "connected" : "connecting",
+            }),
+            runs: existingRun
+              ? {
+                  ...state.runs,
+                  [jobId]: {
+                    ...existingRun,
+                    connectionStatus: existingSocket.readyState === WebSocket.OPEN ? "connected" : "connecting",
+                  },
+                }
+              : state.runs,
+          }));
+          return;
+        }
+
+        set((state) => ({
+          ...applyRunToCurrent(existingRun ?? createRunSnapshot(jobId, { connectionStatus: "connecting" })),
+          runs: {
+            ...state.runs,
+            [jobId]: {
+              ...(existingRun ?? createRunSnapshot(jobId)),
+              connectionStatus: "connecting",
+            },
+          },
+        }));
 
         const socket = openJobSocket(
           jobId,
           (event) => {
             set((state) => {
+              const currentRun = state.runs[jobId] ?? createRunSnapshot(jobId);
               const logLine = formatLog(event);
               const logs =
-                event.message && state.logs[state.logs.length - 1] !== logLine
-                  ? [...state.logs, logLine]
-                  : state.logs;
+                event.message && currentRun.logs[currentRun.logs.length - 1] !== logLine
+                  ? [...currentRun.logs, logLine]
+                  : currentRun.logs;
 
               const nextJob: JobStatus = {
                 status: event.type === "complete" ? "complete" : event.type === "error" ? "error" : event.stage,
@@ -244,46 +381,67 @@ export const useGeneration = create<GenerationState>()(
                 slides_completed: event.slides_completed,
                 total_slides: event.total_slides,
                 output_path:
-                  typeof event.data.output_path === "string" ? event.data.output_path : state.job?.output_path,
+                  typeof event.data.output_path === "string" ? event.data.output_path : currentRun.job?.output_path,
                 error: event.type === "error" ? event.message : undefined,
               };
 
-              let slides = state.slides;
+              let slides = currentRun.slides;
               if (event.type === "slide_ready" && typeof event.data.svg === "string") {
-                slides = appendSlide(state.slides, {
-                  index: Number(event.data.page ?? state.slides.length + 1),
-                  name: `slide_${event.data.page ?? state.slides.length + 1}`,
+                slides = appendSlide(currentRun.slides, {
+                  index: Number(event.data.page ?? currentRun.slides.length + 1),
+                  name: `slide_${event.data.page ?? currentRun.slides.length + 1}`,
                   source: "output",
                   content: String(event.data.svg),
                 });
               }
 
-              return {
-                jobId,
-                activeJobId: FINAL_JOB_STATUSES.has(nextJob.status) ? undefined : jobId,
+              const updatedRun: RunSnapshot = {
+                ...currentRun,
                 job: nextJob,
                 slides,
-                selectedSlide: pickSelectedSlide(slides, state.selectedSlide),
+                selectedSlide: pickSelectedSlide(slides, currentRun.selectedSlide),
                 logs,
                 error: event.type === "error" ? event.message : undefined,
+                connectionStatus: FINAL_JOB_STATUSES.has(nextJob.status) ? "disconnected" : currentRun.connectionStatus,
+              };
+
+              return {
+                ...(state.jobId === jobId ? applyRunToCurrent(updatedRun) : {}),
+                runs: {
+                  ...state.runs,
+                  [jobId]: updatedRun,
+                },
               };
             });
-            get().syncHistory();
+            get().syncHistory(jobId);
 
             if (event.stage === "generation") {
               void fetchPreview(jobId)
                 .then((preview) => {
                   set((state) => {
-                    if (!shouldReplaceSlides(state.slides, preview.slides)) {
-                      return {};
+                    const currentRun = state.runs[jobId] ?? createRunSnapshot(jobId);
+                    if (!shouldReplaceSlides(currentRun.slides, preview.slides)) {
+                      return state.jobId === jobId
+                        ? {
+                            ...(state.jobId === jobId ? applyRunToCurrent(currentRun) : {}),
+                          }
+                        : {};
                     }
-                    return {
+                    const updatedRun: RunSnapshot = {
+                      ...currentRun,
                       result: preview,
                       slides: preview.slides,
-                      selectedSlide: pickSelectedSlide(preview.slides, state.selectedSlide),
+                      selectedSlide: pickSelectedSlide(preview.slides, currentRun.selectedSlide),
+                    };
+                    return {
+                      ...(state.jobId === jobId ? applyRunToCurrent(updatedRun) : {}),
+                      runs: {
+                        ...state.runs,
+                        [jobId]: updatedRun,
+                      },
                     };
                   });
-                  get().syncHistory();
+                  get().syncHistory(jobId);
                 })
                 .catch(() => undefined);
             }
@@ -292,11 +450,41 @@ export const useGeneration = create<GenerationState>()(
               void get().hydrateResult(jobId);
             }
           },
-          () => set({ connectionStatus: "connected" }),
-          () => set({ connectionStatus: "disconnected", socket: undefined }),
+          () =>
+            set((state) => {
+              const run = state.runs[jobId] ?? createRunSnapshot(jobId);
+              const updatedRun = { ...run, connectionStatus: "connected" as const };
+              return {
+                ...(state.jobId === jobId ? applyRunToCurrent(updatedRun) : {}),
+                runs: {
+                  ...state.runs,
+                  [jobId]: updatedRun,
+                },
+              };
+            }),
+          () =>
+            set((state) => {
+              const run = state.runs[jobId] ?? createRunSnapshot(jobId);
+              const updatedRun = { ...run, connectionStatus: "disconnected" as const };
+              const nextSockets = { ...state.socketsByJob };
+              delete nextSockets[jobId];
+              return {
+                ...(state.jobId === jobId ? applyRunToCurrent(updatedRun) : {}),
+                runs: {
+                  ...state.runs,
+                  [jobId]: updatedRun,
+                },
+                socketsByJob: nextSockets,
+              };
+            }),
         );
 
-        set({ socket });
+        set((state) => ({
+          socketsByJob: {
+            ...state.socketsByJob,
+            [jobId]: socket,
+          },
+        }));
       },
       async hydrateResult(jobId) {
         const historyEntry = get().history.find((entry) => entry.jobId === jobId);
@@ -317,41 +505,72 @@ export const useGeneration = create<GenerationState>()(
             return buildStoredJob(historyEntry);
           }),
         ]);
-        set((state) => ({
-          jobId,
-          activeJobId: FINAL_JOB_STATUSES.has(job.status) ? undefined : jobId,
-          result,
-          job,
-          slides: result.slides,
-          selectedSlide: pickSelectedSlide(result.slides, state.selectedSlide),
-          error: job.error ?? undefined,
-        }));
-        get().syncHistory();
+        set((state) => {
+          const currentRun = state.runs[jobId] ?? createRunSnapshot(jobId);
+          const updatedRun: RunSnapshot = {
+            ...currentRun,
+            result,
+            job,
+            slides: result.slides,
+            selectedSlide: pickSelectedSlide(result.slides, currentRun.selectedSlide),
+            error: job.error ?? undefined,
+            connectionStatus: FINAL_JOB_STATUSES.has(job.status) ? "disconnected" : currentRun.connectionStatus,
+          };
+          return {
+            ...(state.jobId === jobId ? applyRunToCurrent(updatedRun) : {}),
+            runs: {
+              ...state.runs,
+              [jobId]: updatedRun,
+            },
+          };
+        });
+        get().syncHistory(jobId);
       },
-      async resumeCurrentRun() {
-        const currentJobId = get().activeJobId ?? get().jobId;
+      async resumeCurrentRun(targetJobId) {
+        const currentJobId = targetJobId ?? get().activeJobId ?? get().jobId;
         if (!currentJobId) {
           return false;
         }
 
-        const currentJob = get().job;
-        if (get().socket || (currentJob && FINAL_JOB_STATUSES.has(currentJob.status))) {
+        const currentRun = get().runs[currentJobId];
+        const currentJob = currentRun?.job ?? get().job;
+        if (
+          !targetJobId &&
+          ((get().socketsByJob[currentJobId] && currentRun?.connectionStatus !== "disconnected") ||
+            (currentJob && FINAL_JOB_STATUSES.has(currentJob.status)))
+        ) {
+          if (currentRun) {
+            set(() => ({
+              ...applyRunToCurrent(currentRun),
+            }));
+          }
           return true;
         }
 
         try {
           const [job, preview] = await Promise.all([fetchJobStatus(currentJobId), fetchPreview(currentJobId).catch(() => undefined)]);
 
-          set((state) => ({
-            jobId: currentJobId,
-            activeJobId: FINAL_JOB_STATUSES.has(job.status) ? undefined : currentJobId,
-            job,
-            result: preview ?? state.result,
-            slides: preview?.slides ?? state.slides,
-            selectedSlide: pickSelectedSlide(preview?.slides ?? state.slides, state.selectedSlide),
-          error: job.error ?? undefined,
-        }));
-          get().syncHistory();
+          set((state) => {
+            const run = state.runs[currentJobId] ?? createRunSnapshot(currentJobId);
+            const nextSlides = preview?.slides ?? run.slides;
+            const updatedRun: RunSnapshot = {
+              ...run,
+              job,
+              result: preview ?? run.result,
+              slides: nextSlides,
+              selectedSlide: pickSelectedSlide(nextSlides, run.selectedSlide),
+              error: job.error ?? undefined,
+              connectionStatus: FINAL_JOB_STATUSES.has(job.status) ? "disconnected" : run.connectionStatus,
+            };
+            return {
+              ...applyRunToCurrent(updatedRun),
+              runs: {
+                ...state.runs,
+                [currentJobId]: updatedRun,
+              },
+            };
+          });
+          get().syncHistory(currentJobId);
 
           if (job.status === "complete") {
             await get().hydrateResult(currentJobId);
@@ -373,26 +592,76 @@ export const useGeneration = create<GenerationState>()(
         }
       },
       selectSlide(slide) {
-        set({ selectedSlide: slide });
+        set((state) => {
+          if (!state.jobId) {
+            return { selectedSlide: slide };
+          }
+          const currentRun = state.runs[state.jobId];
+          if (!currentRun) {
+            return { selectedSlide: slide };
+          }
+          return {
+            selectedSlide: slide,
+            runs: {
+              ...state.runs,
+              [state.jobId]: {
+                ...currentRun,
+                selectedSlide: slide,
+              },
+            },
+          };
+        });
       },
-      syncHistory() {
-        const nextItem = buildHistoryItem(get());
+      syncHistory(targetJobId) {
+        const jobId = targetJobId ?? get().jobId;
+        const nextItem = buildHistoryItemFromRun(get().history, jobId ? get().runs[jobId] : undefined);
         if (!nextItem) {
           return;
         }
         set((state) => ({
           history: upsertHistoryItem(state.history, nextItem),
-          activeJobId: FINAL_JOB_STATUSES.has(nextItem.status) ? undefined : nextItem.jobId,
+          activeJobId:
+            state.jobId === nextItem.jobId && FINAL_JOB_STATUSES.has(nextItem.status) ? undefined : state.activeJobId,
         }));
       },
-      removeHistory(jobId) {
-        set((state) => ({
-          history: state.history.filter((entry) => entry.jobId !== jobId),
-        }));
+      async removeHistory(jobId) {
+        const run = get().runs[jobId];
+        const status = run?.job?.status ?? get().history.find((entry) => entry.jobId === jobId)?.status;
+        if (status && !FINAL_JOB_STATUSES.has(status)) {
+          await cancelJob(jobId).catch(() => undefined);
+        }
+        const socket = get().socketsByJob[jobId];
+        socket?.close();
+        set((state) => {
+          const nextRuns = { ...state.runs };
+          delete nextRuns[jobId];
+          const nextSockets = { ...state.socketsByJob };
+          delete nextSockets[jobId];
+          const isCurrent = state.jobId === jobId;
+          return {
+            history: state.history.filter((entry) => entry.jobId !== jobId),
+            runs: nextRuns,
+            socketsByJob: nextSockets,
+            ...(isCurrent
+              ? {
+                  uploadSession: undefined,
+                  jobId: undefined,
+                  job: undefined,
+                  slides: [],
+                  logs: [],
+                  selectedSlide: undefined,
+                  connectionStatus: "disconnected" as const,
+                  error: undefined,
+                  result: undefined,
+                  activeJobId: undefined,
+                  currentRunConfig: undefined,
+                }
+              : {}),
+          };
+        });
         sessionStorage.removeItem(`paper-ppt-live-job:${jobId}`);
       },
       reset() {
-        get().socket?.close();
         set({
           uploadSession: undefined,
           jobId: undefined,
@@ -405,24 +674,23 @@ export const useGeneration = create<GenerationState>()(
           result: undefined,
           activeJobId: undefined,
           currentRunConfig: undefined,
-          socket: undefined,
         });
       },
     }),
     {
-      name: "paper-ppt-agent-generation-v1",
-      storage: createJSONStorage(() => window.localStorage),
+      name: GENERATION_STORAGE_KEY,
+      storage: createJSONStorage(() => {
+        clearLegacyGenerationStorage();
+        return window.localStorage;
+      }),
       partialize: (state) => ({
         uploadSession: state.uploadSession,
         jobId: state.jobId,
         job: state.job,
-        slides: state.slides,
-        logs: state.logs,
-        selectedSlide: state.selectedSlide,
         connectionStatus: "disconnected",
         error: state.error,
-        result: state.result,
         history: state.history,
+        runs: serializeRunsForStorage(state.runs),
         activeJobId: state.activeJobId,
         currentRunConfig: state.currentRunConfig,
       }),

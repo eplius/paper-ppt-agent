@@ -46,6 +46,9 @@ export function ProgressPanel({ job, connectionStatus }: ProgressPanelProps) {
     if (status === "error") {
       return locale === "zh" ? "失败" : "Error";
     }
+    if (status === "cancelled") {
+      return locale === "zh" ? "已取消" : "Cancelled";
+    }
     if (status === "pending") {
       return locale === "zh" ? "等待中" : "Pending";
     }
@@ -164,6 +167,8 @@ function translateJobMessage(message: string | undefined, locale: "en" | "zh") {
     "Re-generating slides with feedback...": "正在根据反馈重新生成幻灯片...",
     "Re-generating selected slides with feedback...": "正在根据反馈重新生成选定页面...",
     "Refined PowerPoint generated!": "优化后的 PowerPoint 已生成",
+    "Job cancelled": "任务已取消",
+    "Refine job cancelled": "优化任务已取消",
     "Revising manuscript structure from feedback...": "正在根据反馈重写讲稿结构...",
     "Manuscript revised": "讲稿已更新",
     "Rebuilding design specification...": "正在重建设计规范...",

@@ -21,33 +21,28 @@ async def _run_refine_job(job_id: str, request: Any) -> None:
     if job is None:
         return
 
-    project_dir = job.project_dir
-    if not project_dir:
-        return
-
-    # Acquire per-project lock so concurrent refine calls for the same project
-    # are serialised and don't corrupt svg_final/.
-    lock = session_manager.get_project_lock(project_dir)
-    async with lock:
-        try:
-            async for event in run_refine_pipeline(request):
-                current_job = session_manager.get_job(job_id)
-                if current_job is None:
-                    return
-                for payload, updates in payloads_from_progress_event(
-                    job_id, current_job, event
-                ):
-                    session_manager.record_event(job_id, payload, **updates)
-        except Exception as exc:
+    try:
+        async for event in run_refine_pipeline(request):
             current_job = session_manager.get_job(job_id)
             if current_job is None:
                 return
-            from backend.orchestrator.pipeline import ProgressEvent
-            error_event = ProgressEvent("error", "error", str(exc), current_job.progress)
             for payload, updates in payloads_from_progress_event(
-                job_id, current_job, error_event
+                job_id, current_job, event
             ):
                 session_manager.record_event(job_id, payload, **updates)
+    except asyncio.CancelledError:
+        session_manager.mark_job_cancelled(job_id, "Refine job cancelled")
+        raise
+    except Exception as exc:
+        current_job = session_manager.get_job(job_id)
+        if current_job is None:
+            return
+        from backend.orchestrator.pipeline import ProgressEvent
+        error_event = ProgressEvent("error", "error", str(exc), current_job.progress)
+        for payload, updates in payloads_from_progress_event(
+            job_id, current_job, error_event
+        ):
+            session_manager.record_event(job_id, payload, **updates)
 
 
 @router.post("/refine", response_model=RefineResponse)
@@ -86,11 +81,28 @@ async def refine_presentation(request: RefineRequest) -> RefineResponse:
             detail="Failed to create refine job.",
         )
 
+    from backend.generator.project_manager import clone_project_for_refine
+
+    try:
+        refine_project_dir = clone_project_for_refine(parent_job.project_dir, job.id)
+    except Exception as exc:
+        session_manager.update_job(
+            job.id,
+            status="error",
+            message="Failed to prepare refine workspace",
+            error=str(exc),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to prepare refine workspace.",
+        ) from exc
+
     options = request.options
     session_manager.update_job(
         job.id,
         status="pending",
         message="Queued for refinement",
+        project_dir=str(refine_project_dir),
         provider=request.model_settings.provider,
         model_name=request.model_settings.model,
         base_url=request.model_settings.base_url,
@@ -105,7 +117,7 @@ async def refine_presentation(request: RefineRequest) -> RefineResponse:
     from backend.orchestrator.pipeline import RefineRequest as PipelineRefineRequest
 
     pipeline_request = PipelineRefineRequest(
-        project_dir=parent_job.project_dir,
+        project_dir=str(refine_project_dir),
         feedback=request.feedback,
         feedback_history=job.feedback_history,
         job_id=job.id,
@@ -122,5 +134,6 @@ async def refine_presentation(request: RefineRequest) -> RefineResponse:
         allow_structure_changes=request.allow_structure_changes,
     )
 
-    asyncio.create_task(_run_refine_job(job.id, pipeline_request))
+    task = asyncio.create_task(_run_refine_job(job.id, pipeline_request))
+    session_manager.register_task(job.id, task)
     return RefineResponse(job_id=job.id, status="started")

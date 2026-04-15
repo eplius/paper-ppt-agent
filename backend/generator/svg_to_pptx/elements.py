@@ -6,6 +6,7 @@ Each function converts a specific SVG element type to DrawingML XML.
 from __future__ import annotations
 
 import base64
+import hashlib
 import re
 from pathlib import Path
 from typing import Any
@@ -331,8 +332,10 @@ def convert_image(elem: Any, ctx: ConvertContext) -> str:
         if ext == "jpeg":
             ext = "jpg"
 
-    # Store media and create relationship
-    img_name = f"image{len(ctx.media_files) + 1}.{ext}"
+    # Use a slide-scoped, content-derived name so images from later slides do
+    # not overwrite earlier ones in /ppt/media when the package is assembled.
+    digest = hashlib.sha1(img_data).hexdigest()[:12]
+    img_name = f"slide{ctx.slide_num}_image{len(ctx.media_files) + 1}_{digest}.{ext}"
     ctx.media_files[img_name] = img_data
     rel_id = ctx.next_rel_id()
     ctx.rel_entries.append({

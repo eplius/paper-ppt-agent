@@ -6,7 +6,7 @@ from typing import Any
 
 from .manager import Job
 
-PIPELINE_STAGES = ("parsing", "research", "strategy", "generation", "postprocess", "export")
+PIPELINE_STAGES = ("parsing", "research", "strategy", "generation", "postprocess", "export", "cancelled")
 
 
 def build_snapshot_event(job_id: str, job: Job) -> dict[str, Any]:
@@ -18,6 +18,9 @@ def build_snapshot_event(job_id: str, job: Job) -> dict[str, Any]:
     elif job.status == "error":
         status = "error"
         stage = "export" if job.progress >= 0.85 else stage
+    elif job.status == "cancelled":
+        status = "error"
+        stage = "cancelled"
     elif job.status == "complete":
         status = "complete"
         stage = "export"

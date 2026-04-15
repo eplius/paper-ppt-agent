@@ -5,7 +5,7 @@ import { useLocale } from "../../i18n";
 export function Sidebar() {
   const { t, locale } = useLocale();
   const location = useLocation();
-  const { history, activeJobId, removeHistory } = useGeneration();
+  const { history, activeJobId, removeHistory, reset } = useGeneration();
   const searchParams = new URLSearchParams(location.search);
   const links = [
     { to: "/", label: t("sidebar.overview") },
@@ -42,14 +42,16 @@ export function Sidebar() {
           <Link
             to="/generate?fresh=1"
             className={`history-create-card ${isFreshEntryActive ? "history-create-card-active" : ""}`}
+            onClick={() => reset()}
           >
             <strong className="history-create-name">{t("result.newRun")}</strong>
           </Link>
           {recentHistory.length > 0 ? (
             recentHistory.map((entry) => {
-              const target = entry.jobId === activeJobId ? "/generate" : `/result?job=${entry.jobId}`;
+              const target = getHistoryTarget(entry, activeJobId);
               const isActive =
-                (target === "/generate" && location.pathname === "/generate") ||
+                (target.startsWith("/generate") && location.pathname === "/generate" && searchParams.get("job") === entry.jobId) ||
+                (target === "/generate" && location.pathname === "/generate" && !searchParams.get("job")) ||
                 (location.pathname === "/result" && currentResultJobId === entry.jobId);
 
               return (
@@ -70,7 +72,7 @@ export function Sidebar() {
                     type="button"
                     className="history-delete"
                     aria-label={locale === "zh" ? "删除记录" : "Delete history item"}
-                    onClick={() => removeHistory(entry.jobId)}
+                    onClick={() => void removeHistory(entry.jobId)}
                   >
                     ×
                   </button>
@@ -86,6 +88,24 @@ export function Sidebar() {
   );
 }
 
+function getHistoryTarget(
+  entry: { jobId: string; status: string; parentJobId?: string | null },
+  activeJobId?: string,
+) {
+  if (entry.parentJobId || isHistoryResultStatus(entry.status)) {
+    return `/result?job=${entry.jobId}`;
+  }
+  if (entry.jobId === activeJobId) {
+    return `/generate?job=${entry.jobId}`;
+  }
+  return `/generate?job=${entry.jobId}`;
+}
+
+function isHistoryResultStatus(status: string) {
+  const normalized = status.toLowerCase();
+  return normalized === "complete" || normalized === "error" || normalized === "cancelled";
+}
+
 function translateHistoryStatus(status: string, locale: "en" | "zh") {
   const translations: Record<string, { zh: string; en: string }> = {
     pending: { zh: "处理中", en: "Pending" },
@@ -97,6 +117,7 @@ function translateHistoryStatus(status: string, locale: "en" | "zh") {
     export: { zh: "导出中", en: "Export" },
     complete: { zh: "已完成", en: "Complete" },
     error: { zh: "失败", en: "Error" },
+    cancelled: { zh: "已取消", en: "Cancelled" },
   };
 
   const normalized = status.toLowerCase();

@@ -61,6 +61,30 @@ def init_project(
     return project_dir
 
 
+def clone_project_for_refine(
+    source_project_dir: Path,
+    refine_job_id: str,
+    base_dir: Path | None = None,
+) -> Path:
+    """Clone a completed project into an isolated workspace for refine.
+
+    The cloned workspace keeps the source assets, manuscript, design spec,
+    and current SVGs, but starts with a clean ``exports/`` and ``svg_archive/``
+    so parallel refine jobs cannot overwrite each other's outputs.
+    """
+    target_base = base_dir or source_project_dir.parent
+    target_dir = target_base / f"{source_project_dir.name}_refine_{refine_job_id}"
+
+    shutil.copytree(
+        source_project_dir,
+        target_dir,
+        ignore=shutil.ignore_patterns("exports", "svg_archive", "__pycache__", ".__*"),
+    )
+    (target_dir / "exports").mkdir(parents=True, exist_ok=True)
+    (target_dir / "svg_archive").mkdir(parents=True, exist_ok=True)
+    return target_dir
+
+
 def prepare_for_finalize(project_dir: Path) -> None:
     """Copy svg_output/ to svg_final/ in preparation for post-processing."""
     svg_output = project_dir / "svg_output"

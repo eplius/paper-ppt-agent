@@ -44,13 +44,18 @@ class GenerateResponse(BaseModel):
 
 
 class JobStatus(BaseModel):
-    status: str  # parsing, research, strategy, generation, postprocess, export, complete, error
+    status: str  # parsing, research, strategy, generation, postprocess, export, complete, error, cancelled
     progress: float = 0.0
     message: str = ""
     slides_completed: int = 0
     total_slides: int = 0
     output_path: str | None = None
     error: str | None = None
+
+
+class CancelJobResponse(BaseModel):
+    job_id: str
+    status: str
 
 
 class PreviewSlide(BaseModel):

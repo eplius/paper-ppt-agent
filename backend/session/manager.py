@@ -61,9 +61,7 @@ class SessionManager:
         self._sessions: dict[str, Session] = {}
         self._jobs: dict[str, Job] = {}
         self._ws_queues: dict[str, list[asyncio.Queue]] = {}
-        # Per-project_dir async lock so two refine requests for the same
-        # project cannot run concurrently and corrupt svg_final/.
-        self._project_locks: dict[str, asyncio.Lock] = {}
+        self._tasks: dict[str, asyncio.Task[Any]] = {}
         self._load_state()
 
     def create_session(
@@ -100,11 +98,13 @@ class SessionManager:
         self,
         parent_job_id: str,
         feedback: str,
+        project_dir: str | None = None,
     ) -> Job | None:
-        """Create a refine job that reuses the project_dir of *parent_job_id*.
+        """Create a refine job derived from *parent_job_id*.
 
-        The new job inherits the parent's project_dir and feedback_history so
-        the pipeline can append the new feedback and regenerate SVGs.
+        The new job inherits the parent's feedback history and model settings.
+        ``project_dir`` may override the parent's workspace so refine jobs can
+        run in isolated clones instead of mutating the same directory.
 
         Returns None if the parent job or its project_dir cannot be found.
         """
@@ -119,7 +119,7 @@ class SessionManager:
         job = Job(
             id=job_id,
             session_id=parent.session_id,
-            project_dir=parent.project_dir,
+            project_dir=project_dir or parent.project_dir,
             parent_job_id=parent_job_id,
             feedback_history=history,
             provider=parent.provider,
@@ -137,6 +137,51 @@ class SessionManager:
 
     def get_job(self, job_id: str) -> Job | None:
         return self._jobs.get(job_id)
+
+    def register_task(self, job_id: str, task: asyncio.Task[Any]) -> None:
+        self._tasks[job_id] = task
+
+        def _cleanup(_: asyncio.Task[Any]) -> None:
+            current = self._tasks.get(job_id)
+            if current is task:
+                self._tasks.pop(job_id, None)
+
+        task.add_done_callback(_cleanup)
+
+    def cancel_job(self, job_id: str) -> bool:
+        task = self._tasks.get(job_id)
+        if task is None or task.done():
+            return False
+        task.cancel()
+        return True
+
+    def mark_job_cancelled(self, job_id: str, message: str = "Job cancelled") -> None:
+        job = self._jobs.get(job_id)
+        if not job:
+            return
+
+        self._tasks.pop(job_id, None)
+        event = {
+            "type": "progress",
+            "job_id": job_id,
+            "stage": "cancelled",
+            "status": "error",
+            "message": message,
+            "progress": job.progress,
+            "slides_completed": job.slides_completed,
+            "total_slides": job.total_slides,
+            "data": {
+                "output_path": job.output_path,
+                "project_dir": job.project_dir,
+            },
+        }
+        self.record_event(
+            job_id,
+            event,
+            status="cancelled",
+            message=message,
+            error=None,
+        )
 
     def update_job(self, job_id: str, **kwargs: Any) -> None:
         job = self._jobs.get(job_id)
@@ -182,12 +227,6 @@ class SessionManager:
             if not self._ws_queues[job_id]:
                 self._ws_queues.pop(job_id, None)
 
-    def get_project_lock(self, project_dir: str) -> asyncio.Lock:
-        """Return (creating if needed) the async lock for *project_dir*."""
-        if project_dir not in self._project_locks:
-            self._project_locks[project_dir] = asyncio.Lock()
-        return self._project_locks[project_dir]
-
     def delete_session(self, session_id: str) -> None:
         session = self._sessions.pop(session_id, None)
         if session and session.file_path.exists():
@@ -200,7 +239,7 @@ class SessionManager:
         self._sessions.clear()
         self._jobs.clear()
         self._ws_queues.clear()
-        self._project_locks.clear()
+        self._tasks.clear()
         self._persist_state()
 
     def _persist_state(self) -> None:

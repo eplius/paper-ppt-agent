@@ -421,6 +421,7 @@ function formatStatusLabel(
   const normalized = status ?? "";
   if (normalized === "complete") return t("progress.ready");
   if (normalized === "error") return "失败";
+  if (normalized === "cancelled") return "已取消";
   if (normalized === "pending") return t("common.pending");
   if (normalized === "generation") return "生成中";
   if (normalized === "research") return "分析中";

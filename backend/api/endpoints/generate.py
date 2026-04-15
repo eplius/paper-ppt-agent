@@ -29,6 +29,9 @@ async def _run_generation_job(job_id: str, request: Any) -> None:
 
             for payload, updates in payloads_from_progress_event(job_id, current_job, event):
                 session_manager.record_event(job_id, payload, **updates)
+    except asyncio.CancelledError:
+        session_manager.mark_job_cancelled(job_id)
+        raise
     except Exception as exc:
         current_job = session_manager.get_job(job_id)
         if current_job is None:
@@ -79,5 +82,6 @@ async def generate_presentation(request: GenerateRequest) -> GenerateResponse:
         detail_level=request.options.detail_level,
     )
 
-    asyncio.create_task(_run_generation_job(job.id, pipeline_request))
+    task = asyncio.create_task(_run_generation_job(job.id, pipeline_request))
+    session_manager.register_task(job.id, task)
     return GenerateResponse(job_id=job.id, status="started")

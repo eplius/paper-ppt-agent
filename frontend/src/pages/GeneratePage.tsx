@@ -84,7 +84,8 @@ export function GeneratePage() {
       return;
     }
 
-    void resumeCurrentRun();
+    const targetJobId = searchParams.get("job") ?? undefined;
+    void resumeCurrentRun(targetJobId);
   }, [navigate, reset, resumeCurrentRun, searchParams]);
 
   useEffect(() => {

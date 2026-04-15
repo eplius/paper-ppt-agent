@@ -62,6 +62,11 @@ export interface JobStatus {
   error?: string | null;
 }
 
+export interface CancelJobResponse {
+  job_id: string;
+  status: string;
+}
+
 export interface PreviewSlide {
   index: number;
   name: string;
