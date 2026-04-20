@@ -41,7 +41,7 @@ async def upload_paper(file: UploadFile = File(...)) -> UploadResponse:
     if source_type is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Unsupported file type. Use .pdf, .tex, .zip, .tgz, or .tar.gz.",
+            detail="Unsupported file type. Use a paper PDF or TeX source (.pdf, .tex, .zip, .tgz, or .tar.gz).",
         )
 
     session_id = uuid.uuid4().hex[:12]

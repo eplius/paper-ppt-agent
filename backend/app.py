@@ -14,7 +14,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="Paper PPT Agent",
         version="0.1.0",
-        description="Convert academic papers into editable PowerPoint presentations.",
+        description="Generate editable PowerPoint presentations from academic paper PDFs or TeX source packages.",
     )
     app.add_middleware(
         CORSMiddleware,
@@ -33,7 +33,10 @@ def create_app() -> FastAPI:
 
     @app.get("/")
     async def root() -> dict[str, str]:
-        return {"name": "Paper PPT Agent", "frontend": "Open the Vite frontend to use the app."}
+        return {
+            "name": "Paper PPT Agent",
+            "frontend": "Open the Vite frontend to upload a paper PDF or TeX source package and generate a PPT draft.",
+        }
 
     app.include_router(api_router)
     app.include_router(websocket_router)

@@ -1,7 +1,7 @@
 [project]
 name = "paper-ppt-agent"
 version = "0.1.0"
-description = "Convert academic papers (PDF/LaTeX) to editable PowerPoint presentations using multi-agent AI"
+description = "Generate editable PowerPoint presentations from academic papers (PDF/TeX) using multi-agent AI"
 requires-python = ">=3.11"
 dependencies = [
     # Backend

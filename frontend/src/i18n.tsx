@@ -125,7 +125,7 @@ const translations: Record<Locale, Dictionary> = {
     "common.pending": "pending",
   },
   zh: {
-    "header.kicker": "论文转 PPT",
+    "header.kicker": "论文生成 PPT",
     "header.subtitle": "上传论文，查看生成过程，然后导出可继续修改的演示文稿。",
     "nav.home": "首页",
     "nav.studio": "工作台",
