@@ -34,6 +34,30 @@ from typing import TYPE_CHECKING
 
 import fitz  # PyMuPDF
 
+# PyMuPDF ≥ 1.27 ships an optional layout-analysis extension (ONNX-backed).
+# Importing ``pymupdf.layout`` registers the hook into PyMuPDF so the
+# built-in text/table extractors return structure-aware output. It's a
+# strict upgrade — if the package isn't installed we silently fall back
+# to the legacy heuristic parser.
+try:  # pragma: no cover - optional dependency
+    import pymupdf.layout  # noqa: F401 — side-effect import activates layout analyzer
+except Exception:
+    pass
+
+try:  # pragma: no cover - optional dependency
+    import pymupdf4llm as _pymupdf4llm
+except Exception:  # pragma: no cover
+    _pymupdf4llm = None  # type: ignore[assignment]
+
+# PyMuPDF ≥ 1.24 prints an informational message on import suggesting the
+# optional `pymupdf4llm` / `pymupdf_layout` package for richer layout
+# analysis. Now that we've installed them (or at least tried to) we can
+# silence the mupdf-level error channel for cleanliness.
+try:  # pragma: no cover - defensive, API surface differs across versions
+    fitz.TOOLS.mupdf_display_errors(False)  # type: ignore[attr-defined]
+except Exception:
+    pass
+
 from .base import PaperParser
 from .paper_model import PaperFigure, PaperSection, PaperTable, ParsedPaper
 
@@ -61,10 +85,21 @@ _CAPTION_RE = re.compile(
 class PDFParser(PaperParser):
     """Parse academic PDF papers using PyMuPDF."""
 
+    # Populated by parse() so the pipeline can surface parser telemetry
+    # (parse path used, fallback reason, etc.) to the frontend.
+    last_parse_info: dict[str, object] = {}
+
     async def parse(self, file_path: Path, output_dir: Path) -> ParsedPaper:
         output_dir.mkdir(parents=True, exist_ok=True)
         images_dir = output_dir / "images"
         images_dir.mkdir(exist_ok=True)
+
+        info: dict[str, object] = {
+            "layout_available": _pymupdf4llm is not None,
+            "path": "heuristic",
+            "fallback": False,
+            "fallback_reason": None,
+        }
 
         doc = fitz.open(str(file_path))
         try:
@@ -72,6 +107,35 @@ class PDFParser(PaperParser):
             title = self._extract_title(doc, size_map)
             authors = self._extract_authors(doc)
             sections, abstract = self._extract_sections(doc, size_map, images_dir)
+
+            # If the heuristic section extractor produced nothing useful
+            # and pymupdf4llm (+ pymupdf-layout) is available, fall back
+            # to its structured Markdown. Layout analysis runs under the
+            # hood once `pymupdf.layout` is imported at module load.
+            total_section_chars = sum(len(s.content) for s in sections)
+            info["heuristic_section_chars"] = total_section_chars
+            if _pymupdf4llm is not None and total_section_chars < 400:
+                try:
+                    md_text = _pymupdf4llm.to_markdown(doc)  # type: ignore[attr-defined]
+                    if md_text and md_text.strip():
+                        sections = [
+                            PaperSection(title="Document", level=1, content=md_text)
+                        ]
+                        info["path"] = "pymupdf4llm"
+                        info["fallback"] = True
+                        info["fallback_reason"] = (
+                            f"heuristic parser extracted only "
+                            f"{total_section_chars} chars; using pymupdf4llm "
+                            f"layout-enhanced Markdown."
+                        )
+                        info["pymupdf4llm_chars"] = len(md_text)
+                except Exception as exc:
+                    info["path"] = "heuristic"
+                    info["fallback"] = False
+                    info["fallback_error"] = str(exc)
+
+            PDFParser.last_parse_info = info
+
             paper = ParsedPaper(
                 title=title,
                 authors=authors,

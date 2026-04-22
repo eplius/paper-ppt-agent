@@ -10,6 +10,7 @@ export function Sidebar() {
   const links = [
     { to: "/", label: t("sidebar.overview") },
     { to: "/generate", label: t("sidebar.generationStudio") },
+    { to: "/logs", label: t("sidebar.logs") },
   ];
   const recentHistory = history.slice(0, 5);
   const currentResultJobId = searchParams.get("job");

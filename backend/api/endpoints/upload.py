@@ -44,11 +44,23 @@ async def upload_paper(file: UploadFile = File(...)) -> UploadResponse:
             detail="Unsupported file type. Use a paper PDF or TeX source (.pdf, .tex, .zip, .tgz, or .tar.gz).",
         )
 
+    content = await file.read()
+    if len(content) > settings.max_upload_bytes:
+        max_mb = settings.max_upload_bytes // (1024 * 1024)
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"File exceeds max upload size of {max_mb} MB.",
+        )
+    if len(content) == 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded file is empty.",
+        )
+
     session_id = uuid.uuid4().hex[:12]
     upload_dir = settings.workspaces_dir / "uploads" / session_id
     upload_dir.mkdir(parents=True, exist_ok=True)
     file_path = upload_dir / (file.filename or f"upload{suffix}")
-    content = await file.read()
     file_path.write_bytes(content)
 
     session = session_manager.create_session(

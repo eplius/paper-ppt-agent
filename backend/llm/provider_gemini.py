@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import base64
+import time
 from collections.abc import AsyncIterator
 
 from google import genai
 from google.genai import types as genai_types
 from pydantic import BaseModel
 
+from backend.usage.tracker import current_usage_context, usage_tracker
+
 from .base import LLMProvider
+from .retry import call_with_retry
 from .types import (
     ContentBlock,
     LLMMessage,
@@ -87,18 +91,36 @@ class GeminiProvider(LLMProvider):
         if system_text:
             config.system_instruction = system_text
 
-        resp = await self._client.aio.models.generate_content(
-            model=model,
-            contents=contents,
-            config=config,
+        t0 = time.monotonic()
+        resp = await call_with_retry(
+            lambda: self._client.aio.models.generate_content(
+                model=model,
+                contents=contents,
+                config=config,
+            )
         )
+        duration_ms = int((time.monotonic() - t0) * 1000)
 
         content = resp.text or ""
         usage = None
         if resp.usage_metadata:
+            prompt_tokens = resp.usage_metadata.prompt_token_count or 0
+            completion_tokens = resp.usage_metadata.candidates_token_count or 0
             usage = TokenUsage(
-                prompt_tokens=resp.usage_metadata.prompt_token_count or 0,
-                completion_tokens=resp.usage_metadata.candidates_token_count or 0,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+            )
+            ctx = current_usage_context()
+            usage_tracker.record(
+                provider="gemini",
+                model=model,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                job_id=ctx.get("job_id"),
+                stage=ctx.get("stage"),
+                page=ctx.get("page"),
+                attempt=ctx.get("attempt") or 1,
+                duration_ms=duration_ms,
             )
         return LLMResponse(content=content, usage=usage, raw=resp)
 

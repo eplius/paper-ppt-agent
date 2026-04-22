@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import base64
+import time
 from collections.abc import AsyncIterator
 
 from openai import AsyncOpenAI
 from pydantic import BaseModel
 
+from backend.usage.tracker import current_usage_context, usage_tracker
+
 from .base import LLMProvider
+from .retry import call_with_retry
 from .types import (
     ContentBlock,
     LLMMessage,
@@ -78,13 +82,19 @@ class OpenAIProvider(LLMProvider):
         if normalized_max_tokens:
             kwargs["max_tokens"] = normalized_max_tokens
 
+        t0 = time.monotonic()
         if response_format:
-            resp = await self._client.beta.chat.completions.parse(
-                **kwargs,
-                response_format=response_format,
+            resp = await call_with_retry(
+                lambda: self._client.beta.chat.completions.parse(
+                    **kwargs,
+                    response_format=response_format,
+                )
             )
         else:
-            resp = await self._client.chat.completions.create(**kwargs)
+            resp = await call_with_retry(
+                lambda: self._client.chat.completions.create(**kwargs)
+            )
+        duration_ms = int((time.monotonic() - t0) * 1000)
 
         content = resp.choices[0].message.content or ""
         usage = None
@@ -92,6 +102,19 @@ class OpenAIProvider(LLMProvider):
             usage = TokenUsage(
                 prompt_tokens=resp.usage.prompt_tokens,
                 completion_tokens=resp.usage.completion_tokens,
+            )
+            ctx = current_usage_context()
+            provider_name = "deepseek" if "api.deepseek.com" in self._base_url or model.startswith("deepseek") else "openai"
+            usage_tracker.record(
+                provider=provider_name,
+                model=model,
+                prompt_tokens=resp.usage.prompt_tokens,
+                completion_tokens=resp.usage.completion_tokens,
+                job_id=ctx.get("job_id"),
+                stage=ctx.get("stage"),
+                page=ctx.get("page"),
+                attempt=ctx.get("attempt") or 1,
+                duration_ms=duration_ms,
             )
         return LLMResponse(content=content, usage=usage, raw=resp)
 

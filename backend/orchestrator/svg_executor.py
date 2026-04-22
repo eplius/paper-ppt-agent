@@ -1,15 +1,29 @@
-"""SVG Executor agent: generates SVG page code from design spec."""
+"""SVG Executor agent: generates SVG page code from design spec.
+
+The executor runs a page-by-page generation loop. Each page is checked by
+the static :mod:`backend.generator.svg_critic` before being accepted. If
+the critic finds violations, a targeted repair prompt is fed back to the
+LLM (bounded retries, with slightly lower temperature on each retry) so
+that regeneration is *informed* rather than blind.
+"""
 
 from __future__ import annotations
 
 import re
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
 
 from backend.config import settings
+from backend.generator.svg_critic import CriticConfig, CriticReport, check_svg
 from backend.llm import LLMMessage, LLMProvider, LLMResponse
+from backend.usage.tracker import reset_usage_context, set_usage_context
 
 PROMPT_PATH = Path(__file__).parent / "prompts" / "executor.md"
+
+# How many repair attempts we're willing to spend per page. 1 = initial only.
+MAX_REPAIR_ATTEMPTS = 2
+
+CriticCallback = Callable[[int, int, CriticReport], Awaitable[None]]
 
 
 async def generate_svg_pages(
@@ -24,8 +38,16 @@ async def generate_svg_pages(
     detail_level: str = "normal",
     extra_instruction: str = "",
     target_pages: set[int] | None = None,
+    critic_config: CriticConfig | None = None,
+    on_critic: CriticCallback | None = None,
 ) -> AsyncIterator[tuple[int, str]]:
     """Generate SVG code for each slide page sequentially.
+
+    Every generated page passes through the static critic. When violations
+    are detected, we send the critic's structured repair prompt back to
+    the model (up to ``MAX_REPAIR_ATTEMPTS`` times). If the page still
+    fails, the best available SVG is yielded anyway so the user can see
+    what happened and intervene via the refine loop.
 
     Yields:
         Tuples of (page_number, svg_content).
@@ -87,14 +109,18 @@ async def generate_svg_pages(
             )
         )
 
-        response: LLMResponse = await llm.chat(
-            conversation, model, temperature=0.3, max_tokens=16384
-        )
+        # Attempt 1: initial generation
+        snapshot = set_usage_context(stage="generation", page=page_num, attempt=1)
+        try:
+            response: LLMResponse = await llm.chat(
+                conversation, model, temperature=0.3, max_tokens=16384
+            )
+        finally:
+            reset_usage_context(snapshot)
 
-        # Extract SVG from response
         svg_content = _extract_svg(response.content)
         if not svg_content:
-            # Retry with clarification
+            # One structural-extraction retry (unchanged behaviour).
             conversation.append(LLMMessage.assistant(response.content))
             conversation.append(
                 LLMMessage.user(
@@ -102,22 +128,61 @@ async def generate_svg_pages(
                     "starting with <svg and ending with </svg>."
                 )
             )
-            response = await llm.chat(
-                conversation, model, temperature=0.3, max_tokens=16384
-            )
+            snapshot = set_usage_context(stage="generation", page=page_num, attempt=1)
+            try:
+                response = await llm.chat(
+                    conversation, model, temperature=0.3, max_tokens=16384
+                )
+            finally:
+                reset_usage_context(snapshot)
             svg_content = _extract_svg(response.content)
 
+        # Repair loop driven by the static critic.
         if svg_content:
-            # Save SVG file
+            conversation.append(LLMMessage.assistant(f"```svg\n{svg_content}\n```"))
+
+            best_svg = svg_content
+            for attempt in range(2, MAX_REPAIR_ATTEMPTS + 2):
+                report = check_svg(svg_content, critic_config)
+                if on_critic is not None:
+                    await on_critic(page_num, attempt - 1, report)
+                if report.passed:
+                    best_svg = svg_content
+                    break
+
+                # Ask the model to repair, feeding back structured violations.
+                conversation.append(
+                    LLMMessage.user(
+                        report.to_prompt_block()
+                        + "\n\nReturn the complete corrected SVG only, "
+                        "wrapped in a ```svg code block."
+                    )
+                )
+                repair_temp = max(0.1, 0.3 - 0.1 * (attempt - 1))
+                snapshot = set_usage_context(
+                    stage="repair", page=page_num, attempt=attempt
+                )
+                try:
+                    response = await llm.chat(
+                        conversation, model, temperature=repair_temp, max_tokens=16384
+                    )
+                finally:
+                    reset_usage_context(snapshot)
+
+                repaired = _extract_svg(response.content)
+                if repaired:
+                    svg_content = repaired
+                    best_svg = repaired
+                    conversation.append(
+                        LLMMessage.assistant(f"```svg\n{repaired}\n```")
+                    )
+                else:
+                    conversation.append(LLMMessage.assistant(response.content))
+                    break
+
             svg_path = svg_output_dir / f"{page_num:02d}_{page_name}.svg"
-            svg_path.write_text(svg_content, encoding="utf-8")
-
-            # Add to conversation for context continuity
-            conversation.append(
-                LLMMessage.assistant(f"```svg\n{svg_content}\n```")
-            )
-
-            yield page_num, svg_content
+            svg_path.write_text(best_svg, encoding="utf-8")
+            yield page_num, best_svg
         else:
             conversation.append(LLMMessage.assistant(response.content))
 

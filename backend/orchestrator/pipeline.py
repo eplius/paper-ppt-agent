@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Literal
 
 from backend.config import settings
+from backend.generator.svg_critic import CriticReport
+from backend.usage.tracker import reset_usage_context, set_usage_context
 
 from . import research_agent, strategist_agent, svg_executor
 
@@ -43,6 +45,7 @@ class GenerationRequest:
     instruction: str = ""
     language: str = "en"
     detail_level: str = "normal"
+    style_overrides: dict | None = None  # {palette: [...], font: "...", density: "..."}
 
 
 async def run_pipeline(
@@ -69,6 +72,10 @@ async def run_pipeline(
         base_dir=settings.workspaces_dir,
     )
 
+    # Attribute every LLM call inside this run to the caller's job if known.
+    job_id = getattr(request, "job_id", None)
+    usage_snapshot = set_usage_context(job_id=job_id, stage="parsing", attempt=1)
+
     try:
         # Stage 1: Parse paper
         yield ProgressEvent(
@@ -85,9 +92,24 @@ async def run_pipeline(
             parser = LaTeXParser()
 
         paper = await parser.parse(request.file_path, output_dir)
-        yield ProgressEvent("parsing", "complete", f"Parsed: {paper.title}", 0.15)
+
+        parse_info: dict = {}
+        if isinstance(parser, PDFParser):
+            parse_info = dict(PDFParser.last_parse_info or {})
+
+        complete_msg = f"Parsed: {paper.title}"
+        if parse_info.get("fallback"):
+            complete_msg += " (layout fallback used)"
+        yield ProgressEvent(
+            "parsing",
+            "complete",
+            complete_msg,
+            0.15,
+            data={"parse_info": parse_info} if parse_info else None,
+        )
 
         # Stage 2: Research agent
+        set_usage_context(stage="research")
         yield ProgressEvent("research", "started", "Analyzing paper content...")
         manuscript = await research_agent.analyze_paper(
             paper,
@@ -104,6 +126,7 @@ async def run_pipeline(
         yield ProgressEvent("research", "complete", "Manuscript generated", 0.30)
 
         # Stage 3: Strategist agent
+        set_usage_context(stage="strategy")
         yield ProgressEvent("strategy", "started", "Creating design specification...")
         design_spec = await strategist_agent.create_design_spec(
             manuscript,
@@ -113,6 +136,7 @@ async def run_pipeline(
             style=request.style,
             language=request.language,
             detail_level=request.detail_level,
+            style_overrides=request.style_overrides,
         )
 
         # Save design spec
@@ -120,6 +144,7 @@ async def run_pipeline(
         yield ProgressEvent("strategy", "complete", "Design spec created", 0.40)
 
         # Stage 4: SVG executor
+        set_usage_context(stage="generation")
         total_pages = manuscript.count("---") + 1
         yield ProgressEvent(
             "generation",
@@ -130,6 +155,15 @@ async def run_pipeline(
         )
         generated = 0
 
+        critic_events: list[dict] = []
+
+        async def _on_critic(page_num: int, attempt: int, report: CriticReport) -> None:
+            critic_events.append({
+                "page": page_num,
+                "attempt": attempt,
+                "report": report.to_dict(),
+            })
+
         async for page_num, svg_content in svg_executor.generate_svg_pages(
             design_spec,
             manuscript,
@@ -139,6 +173,8 @@ async def run_pipeline(
             style=request.style,
             language=request.language,
             detail_level=request.detail_level,
+            extra_instruction=_build_style_overrides_block(request.style_overrides),
+            on_critic=_on_critic,
         ):
             generated += 1
             progress = 0.40 + (generated / total_pages) * 0.35
@@ -146,17 +182,29 @@ async def run_pipeline(
             # Embed images inline for live preview (browser can't load file:// paths)
             preview_svg = _embed_svg_preview(svg_content, project_dir)
 
+            page_critic = [ev for ev in critic_events if ev["page"] == page_num]
             yield ProgressEvent(
                 "generation",
                 "progress",
                 f"Generated slide {page_num}/{total_pages}",
                 progress,
-                data={"page": page_num, "svg": preview_svg},
+                data={
+                    "page": page_num,
+                    "svg": preview_svg,
+                    "critic": page_critic,
+                },
             )
 
-        yield ProgressEvent("generation", "complete", f"{generated} slides generated", 0.75)
+        yield ProgressEvent(
+            "generation",
+            "complete",
+            f"{generated} slides generated",
+            0.75,
+            data={"critic": critic_events},
+        )
 
         # Stage 5: Post-processing
+        set_usage_context(stage="postprocess")
         yield ProgressEvent("postprocess", "started", "Finalizing SVGs...")
         stats = finalize_project(project_dir)
         yield ProgressEvent(
@@ -167,6 +215,7 @@ async def run_pipeline(
         )
 
         # Stage 6: Export PPTX
+        set_usage_context(stage="export")
         yield ProgressEvent("export", "started", "Exporting to PowerPoint...")
         svg_files = get_svg_files(project_dir, source="final")
         notes = get_notes(project_dir, svg_files)
@@ -192,6 +241,8 @@ async def run_pipeline(
     except Exception as e:
         yield ProgressEvent("error", "error", str(e))
         raise
+    finally:
+        reset_usage_context(usage_snapshot)
 
 
 def _embed_svg_preview(svg_content: str, project_dir: Path) -> str:
@@ -230,6 +281,7 @@ class RefineRequest:
     detail_level: str = "normal"
     target_pages: list[int] | None = None
     allow_structure_changes: bool = False
+    style_overrides: dict | None = None
 
 
 async def run_refine_pipeline(
@@ -274,12 +326,19 @@ async def run_refine_pipeline(
     llm = create_provider(request.provider, request.api_key, base_url=request.base_url)
     target_pages = sorted({page for page in (request.target_pages or []) if page > 0})
 
+    refine_snapshot = set_usage_context(job_id=request.job_id, stage="refine", attempt=1)
+
     # Build feedback block injected into the SVG executor prompt
     feedback_block = _build_feedback_block(
         request.feedback_history,
         target_pages=target_pages,
         allow_structure_changes=request.allow_structure_changes,
     )
+    overrides_block = _build_style_overrides_block(request.style_overrides)
+    if overrides_block:
+        feedback_block = (
+            f"{feedback_block}\n\n{overrides_block}" if feedback_block else overrides_block
+        )
 
     if request.allow_structure_changes:
         yield ProgressEvent("research", "started", "Revising manuscript structure from feedback...", 0.0)
@@ -305,6 +364,7 @@ async def run_refine_pipeline(
             style=request.style,
             language=request.language,
             detail_level=request.detail_level,
+            style_overrides=request.style_overrides,
         )
         design_spec_path.write_text(design_spec, encoding="utf-8")
         yield ProgressEvent("strategy", "complete", "Design spec rebuilt", 0.30)
@@ -327,6 +387,15 @@ async def run_refine_pipeline(
     )
     generated = 0
 
+    refine_critic_events: list[dict] = []
+
+    async def _refine_on_critic(page_num: int, attempt: int, report: CriticReport) -> None:
+        refine_critic_events.append({
+            "page": page_num,
+            "attempt": attempt,
+            "report": report.to_dict(),
+        })
+
     async for page_num, svg_content in svg_executor.generate_svg_pages(
         design_spec,
         manuscript,
@@ -338,16 +407,18 @@ async def run_refine_pipeline(
         detail_level=request.detail_level,
         extra_instruction=feedback_block,
         target_pages=set(target_pages) if target_pages and not request.allow_structure_changes else None,
+        on_critic=_refine_on_critic,
     ):
         generated += 1
         progress = generation_start + (generated / max(pages_to_generate, 1)) * generation_span
 
         preview_svg = _embed_svg_preview(svg_content, project_dir)
+        page_critic = [ev for ev in refine_critic_events if ev["page"] == page_num]
         yield ProgressEvent(
             "generation", "progress",
             f"Generated slide {page_num}/{total_pages}",
             progress,
-            data={"page": page_num, "svg": preview_svg},
+            data={"page": page_num, "svg": preview_svg, "critic": page_critic},
         )
 
     yield ProgressEvent(
@@ -385,8 +456,10 @@ async def run_refine_pipeline(
         "export", "complete",
         "Refined PowerPoint generated!",
         1.0,
-        data={"output_path": str(pptx_path)},
+        data={"output_path": str(pptx_path), "critic": refine_critic_events},
     )
+
+    reset_usage_context(refine_snapshot)
 
 
 def _archive_svgs(project_dir: Path) -> None:
@@ -437,6 +510,40 @@ def _build_feedback_block(
         "\n**Important:** Address ALL feedback points above when generating each slide."
     )
     return "\n".join(lines)
+
+
+def _build_style_overrides_block(overrides: dict | None) -> str:
+    """Format user style overrides (palette/font/density) as a prompt block."""
+    if not overrides:
+        return ""
+    parts: list[str] = []
+    palette = overrides.get("palette") if isinstance(overrides, dict) else None
+    font = overrides.get("font") if isinstance(overrides, dict) else None
+    density = overrides.get("density") if isinstance(overrides, dict) else None
+    if palette:
+        try:
+            colors = ", ".join(str(c) for c in palette if c)
+        except TypeError:
+            colors = ""
+        if colors:
+            parts.append(
+                f"- **Palette override** (use these exact colors for primary / accent / background "
+                f"where appropriate): {colors}"
+            )
+    if font:
+        parts.append(
+            f"- **Font override**: Use this font-family for every SVG `<text>` element: `{font}`."
+        )
+    if density:
+        density_hint = {
+            "compact": "Prefer dense but legible layouts: smaller paddings, tighter line heights, more items per slide.",
+            "normal": "Keep balanced spacing and default density.",
+            "spacious": "Use generous whitespace, larger margins, fewer items per slide.",
+        }.get(str(density), "")
+        parts.append(f"- **Density override** (`{density}`): {density_hint}")
+    if not parts:
+        return ""
+    return "## Style Overrides (must follow)\n" + "\n".join(parts)
 
 
 def _save_feedback_history(project_dir: Path, history: list[str]) -> None:

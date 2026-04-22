@@ -57,7 +57,7 @@ interface GenerationState {
   runs: Record<string, RunSnapshot>;
   activeJobId?: string;
   currentRunConfig?: RunConfigSnapshot;
-  socketsByJob: Record<string, WebSocket>;
+  socketsByJob: Record<string, import("../lib/ws").ReconnectingSocket>;
   loadProviders: () => Promise<void>;
   uploadFile: (file: File) => Promise<void>;
   startGeneration: (payload: GenerateRequestPayload) => Promise<string>;
@@ -78,6 +78,28 @@ function appendSlide(slides: PreviewSlide[], slide: PreviewSlide): PreviewSlide[
 
 function formatLog(event: JobEvent): string {
   return `[${event.stage}] ${event.message}`;
+}
+
+function buildExtraLogs(event: JobEvent): string[] {
+  const extras: string[] = [];
+  const data = event.data ?? {};
+  const parseInfo = (data as { parse_info?: Record<string, unknown> }).parse_info;
+  if (parseInfo && typeof parseInfo === "object") {
+    const path = String(parseInfo.path ?? "heuristic");
+    if (parseInfo.fallback) {
+      const reason = String(parseInfo.fallback_reason ?? "heuristic parser insufficient");
+      extras.push(`⚠️ [parsing] Layout fallback → ${path}. ${reason}`);
+    } else if (parseInfo.fallback_error) {
+      extras.push(
+        `⚠️ [parsing] Layout-enhanced parse failed; kept heuristic. Error: ${parseInfo.fallback_error}`,
+      );
+    } else if (parseInfo.layout_available === false) {
+      extras.push(
+        "[parsing] Layout extension not installed — running heuristic parser only.",
+      );
+    }
+  }
+  return extras;
 }
 
 function shouldReplaceSlides(current: PreviewSlide[], incoming: PreviewSlide[]): boolean {
@@ -333,18 +355,19 @@ export const useGeneration = create<GenerationState>()(
         const existingSocket = get().socketsByJob[jobId];
         const existingRun = get().runs[jobId];
 
-        if (existingSocket && (existingSocket.readyState === WebSocket.OPEN || existingSocket.readyState === WebSocket.CONNECTING)) {
+        if (existingSocket) {
+          const isOpen = existingSocket.isOpen();
           set((state) => ({
             ...applyRunToCurrent({
               ...(existingRun ?? createRunSnapshot(jobId)),
-              connectionStatus: existingSocket.readyState === WebSocket.OPEN ? "connected" : "connecting",
+              connectionStatus: isOpen ? "connected" : "connecting",
             }),
             runs: existingRun
               ? {
                   ...state.runs,
                   [jobId]: {
                     ...existingRun,
-                    connectionStatus: existingSocket.readyState === WebSocket.OPEN ? "connected" : "connecting",
+                    connectionStatus: isOpen ? "connected" : "connecting",
                   },
                 }
               : state.runs,
@@ -369,10 +392,15 @@ export const useGeneration = create<GenerationState>()(
             set((state) => {
               const currentRun = state.runs[jobId] ?? createRunSnapshot(jobId);
               const logLine = formatLog(event);
-              const logs =
+              let logs =
                 event.message && currentRun.logs[currentRun.logs.length - 1] !== logLine
                   ? [...currentRun.logs, logLine]
                   : currentRun.logs;
+              for (const extra of buildExtraLogs(event)) {
+                if (logs[logs.length - 1] !== extra) {
+                  logs = [...logs, extra];
+                }
+              }
 
               const nextJob: JobStatus = {
                 status: event.type === "complete" ? "complete" : event.type === "error" ? "error" : event.stage,

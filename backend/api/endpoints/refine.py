@@ -8,28 +8,45 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, status
 
 from backend.api.schemas import RefineRequest, RefineResponse
+from backend.config import settings
 from backend.session.manager import session_manager
 from backend.session.progress import payloads_from_progress_event
 
 router = APIRouter()
 
 
+async def _iterate_refine_pipeline(job_id: str, request: Any) -> None:
+    from backend.orchestrator.pipeline import run_refine_pipeline
+
+    async for event in run_refine_pipeline(request):
+        current_job = session_manager.get_job(job_id)
+        if current_job is None:
+            return
+        for payload, updates in payloads_from_progress_event(job_id, current_job, event):
+            session_manager.record_event(job_id, payload, **updates)
+
+
 async def _run_refine_job(job_id: str, request: Any) -> None:
-    from backend.orchestrator.pipeline import ProgressEvent, run_refine_pipeline
+    from backend.orchestrator.pipeline import ProgressEvent
 
     job = session_manager.get_job(job_id)
     if job is None:
         return
 
     try:
-        async for event in run_refine_pipeline(request):
-            current_job = session_manager.get_job(job_id)
-            if current_job is None:
-                return
-            for payload, updates in payloads_from_progress_event(
-                job_id, current_job, event
-            ):
-                session_manager.record_event(job_id, payload, **updates)
+        timeout = settings.job_timeout_seconds
+        if timeout and timeout > 0:
+            await asyncio.wait_for(_iterate_refine_pipeline(job_id, request), timeout=timeout)
+        else:
+            await _iterate_refine_pipeline(job_id, request)
+    except asyncio.TimeoutError:
+        current_job = session_manager.get_job(job_id)
+        if current_job is None:
+            return
+        msg = f"Refine job exceeded timeout of {settings.job_timeout_seconds}s"
+        error_event = ProgressEvent("error", "error", msg, current_job.progress)
+        for payload, updates in payloads_from_progress_event(job_id, current_job, error_event):
+            session_manager.record_event(job_id, payload, **updates)
     except asyncio.CancelledError:
         session_manager.mark_job_cancelled(job_id, "Refine job cancelled")
         raise
@@ -37,7 +54,6 @@ async def _run_refine_job(job_id: str, request: Any) -> None:
         current_job = session_manager.get_job(job_id)
         if current_job is None:
             return
-        from backend.orchestrator.pipeline import ProgressEvent
         error_event = ProgressEvent("error", "error", str(exc), current_job.progress)
         for payload, updates in payloads_from_progress_event(
             job_id, current_job, error_event
@@ -81,10 +97,14 @@ async def refine_presentation(request: RefineRequest) -> RefineResponse:
             detail="Failed to create refine job.",
         )
 
+    from pathlib import Path as _Path
+
     from backend.generator.project_manager import clone_project_for_refine
 
     try:
-        refine_project_dir = clone_project_for_refine(parent_job.project_dir, job.id)
+        refine_project_dir = clone_project_for_refine(
+            _Path(parent_job.project_dir), job.id
+        )
     except Exception as exc:
         session_manager.update_job(
             job.id,
@@ -94,7 +114,7 @@ async def refine_presentation(request: RefineRequest) -> RefineResponse:
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to prepare refine workspace.",
+            detail=f"Failed to prepare refine workspace: {exc}",
         ) from exc
 
     options = request.options
@@ -132,6 +152,11 @@ async def refine_presentation(request: RefineRequest) -> RefineResponse:
         detail_level=options.detail_level or parent_job.detail_level or "normal",
         target_pages=request.target_pages,
         allow_structure_changes=request.allow_structure_changes,
+        style_overrides=(
+            options.style_overrides.model_dump(exclude_none=True)
+            if options.style_overrides
+            else None
+        ),
     )
 
     task = asyncio.create_task(_run_refine_job(job.id, pipeline_request))

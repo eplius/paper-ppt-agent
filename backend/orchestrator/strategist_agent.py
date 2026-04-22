@@ -19,6 +19,7 @@ async def create_design_spec(
     style: str = "academic",
     language: str = "en",
     detail_level: str = "normal",
+    style_overrides: dict | None = None,
 ) -> str:
     """Generate a design specification from a manuscript.
 
@@ -72,6 +73,31 @@ async def create_design_spec(
         "- If language is `bilingual`, page titles and core bullets may include both Chinese and English, but each line must stay readable and deliberate.",
         "- Detail level `normal` should keep pages concise, `high` should allow moderately denser explanatory content, and `very_high` should accommodate richer explanations and fuller evidence coverage without becoming unreadable.",
     ]
+
+    if style_overrides:
+        override_lines = ["\n## Style Overrides (must override defaults)"]
+        palette = style_overrides.get("palette") if isinstance(style_overrides, dict) else None
+        font = style_overrides.get("font") if isinstance(style_overrides, dict) else None
+        density = style_overrides.get("density") if isinstance(style_overrides, dict) else None
+        if palette:
+            try:
+                colors = ", ".join(str(c) for c in palette if c)
+            except TypeError:
+                colors = ""
+            if colors:
+                override_lines.append(
+                    f"- Palette: {colors} — use these as the primary / accent / background colors "
+                    f"in every slide's color system. Do NOT fall back to the default style colors."
+                )
+        if font:
+            override_lines.append(
+                f"- Font-family: `{font}` — use this family for every text element throughout."
+            )
+        if density:
+            override_lines.append(
+                f"- Layout density: `{density}` — respect this target spacing/whitespace aesthetic."
+            )
+        user_parts.append("\n".join(override_lines))
 
     if ref_template:
         user_parts.append(

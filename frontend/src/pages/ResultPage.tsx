@@ -5,6 +5,7 @@ import { SlidePreview } from "../components/preview/SlidePreview";
 import { SlideViewer } from "../components/preview/SlideViewer";
 import { AgentLog } from "../components/progress/AgentLog";
 import { ProgressPanel } from "../components/progress/ProgressPanel";
+import { VersionHistory } from "../components/result/VersionHistory";
 import { useGeneration } from "../hooks/useGeneration";
 import { useLocale } from "../i18n";
 import { fetchJobStatus, fetchPreview, fetchProjectPreview, getDownloadUrl, getDownloadUrlForOutput, reexportPresentation } from "../lib/api";
@@ -79,7 +80,7 @@ export function ResultPage() {
   const [feedback, setFeedback] = useState("");
   const [refineLoading, setRefineLoading] = useState(false);
   const [refineError, setRefineError] = useState<string | null>(null);
-  const [targetPagesText, setTargetPagesText] = useState("");
+  const [targetPagesSet, setTargetPagesSet] = useState<Set<number>>(new Set());
   const [allowStructureChanges, setAllowStructureChanges] = useState(false);
   const [reexportLoading, setReexportLoading] = useState(false);
   const [reexportError, setReexportError] = useState<string | null>(null);
@@ -185,15 +186,24 @@ export function ResultPage() {
     setSelectedSlide((current) => pickSelectedSlide(slides, current));
   }, [slides]);
 
+  // Auto-sync multi-select when slide count changes (keeps valid pages only)
+  useEffect(() => {
+    const max = slides.length;
+    setTargetPagesSet((prev) => {
+      const next = new Set<number>();
+      prev.forEach((page) => {
+        if (page >= 1 && page <= max) next.add(page);
+      });
+      if (next.size === prev.size) return prev;
+      return next;
+    });
+  }, [slides.length]);
+
   // Navigate to generation page to watch refine progress
   const handleRefine = async () => {
     if (!feedback.trim() || !jobId) return;
 
-    const targetPages = parsePageSelection(targetPagesText);
-    if (targetPagesText.trim() && targetPages.length === 0) {
-      setRefineError("页码范围格式不正确，例如 3 或 2,4-6。");
-      return;
-    }
+    const targetPages: number[] = Array.from(targetPagesSet).sort((a, b) => a - b);
 
     const profile = readProviderProfile(historyEntry?.provider ?? "openai", {
       model: historyEntry?.model,
@@ -228,7 +238,7 @@ export function ResultPage() {
         allow_structure_changes: allowStructureChanges,
       });
       setFeedback("");
-      setTargetPagesText("");
+      setTargetPagesSet(new Set());
       connect(newJobId);
       navigate(`/result?job=${newJobId}`);
     } catch (err) {
@@ -354,16 +364,61 @@ export function ResultPage() {
 
         <div className="refine-form">
           <div className="refine-form-row">
-            <label className="field-label">
-              仅修改页码
-              <input
-                className="input-field"
-                placeholder="例如：3 或 2,4-6；留空表示全部页面"
-                value={targetPagesText}
-                onChange={(e) => setTargetPagesText(e.target.value)}
-                disabled={refineLoading}
-              />
-            </label>
+            <div className="field-label" style={{ flex: 1 }}>
+              <div className="selectPages-toolbar">
+                <strong>{t("result.selectPages")}</strong>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setTargetPagesSet(
+                      targetPagesSet.size === slides.length
+                        ? new Set()
+                        : new Set(slides.map((_, i) => i + 1)),
+                    )
+                  }
+                  disabled={refineLoading || slides.length === 0}
+                  className="ghost-button"
+                >
+                  {t("result.selectAll")} ({targetPagesSet.size}/{slides.length})
+                </button>
+              </div>
+              <div className="slide-thumb-multiselect" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(110px, 1fr))", gap: 8 }}>
+                {slides.map((slide, idx) => {
+                  const page = idx + 1;
+                  const selected = targetPagesSet.has(page);
+                  return (
+                    <div
+                      key={slide.name ?? idx}
+                      className={`slide-thumb-selectable ${selected ? "slide-thumb-selected" : ""}`}
+                      onClick={() => {
+                        if (refineLoading) return;
+                        setTargetPagesSet((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(page)) next.delete(page);
+                          else next.add(page);
+                          return next;
+                        });
+                      }}
+                      title={`Page ${page}`}
+                    >
+                      <div className="slide-thumb-checkbox">{selected ? "✓" : ""}</div>
+                      <div
+                        style={{
+                          background: "#fff",
+                          borderRadius: 6,
+                          overflow: "hidden",
+                          aspectRatio: "16/9",
+                        }}
+                        dangerouslySetInnerHTML={{ __html: slide.content ?? "" }}
+                      />
+                      <div style={{ textAlign: "center", fontSize: 11, marginTop: 4, color: "#9ba0a6" }}>
+                        {page}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
             <label className="checkbox-row">
               <input
                 type="checkbox"
@@ -371,7 +426,7 @@ export function ResultPage() {
                 onChange={(e) => setAllowStructureChanges(e.target.checked)}
                 disabled={refineLoading}
               />
-              <span>允许结构调整（增删页、插页、重排）</span>
+              <span>{t("result.allowStructure")}</span>
             </label>
           </div>
           <textarea
@@ -393,6 +448,8 @@ export function ResultPage() {
           </button>
         </div>
       </section>
+
+      <VersionHistory jobId={jobId} />
 
       {jobId === activeJobId ? (
         <section className="result-refine-monitor">
@@ -439,34 +496,6 @@ function pickSelectedSlide(slides: PreviewSlide[], selectedSlide?: PreviewSlide)
     return slides[0];
   }
   return slides.find((slide) => slide.index === selectedSlide.index) ?? slides[0];
-}
-
-function parsePageSelection(value: string): number[] {
-  const result = new Set<number>();
-  for (const rawPart of value.split(",")) {
-    const part = rawPart.trim();
-    if (!part) {
-      continue;
-    }
-    const rangeMatch = part.match(/^(\d+)\s*-\s*(\d+)$/);
-    if (rangeMatch) {
-      const start = Number(rangeMatch[1]);
-      const end = Number(rangeMatch[2]);
-      if (!Number.isFinite(start) || !Number.isFinite(end) || start <= 0 || end < start) {
-        return [];
-      }
-      for (let page = start; page <= end; page += 1) {
-        result.add(page);
-      }
-      continue;
-    }
-    const page = Number(part);
-    if (!Number.isFinite(page) || page <= 0) {
-      return [];
-    }
-    result.add(page);
-  }
-  return [...result].sort((left, right) => left - right);
 }
 
 function formatStatusLabel(

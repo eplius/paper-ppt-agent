@@ -1,0 +1,148 @@
+import { useCallback, useEffect, useState } from "react";
+import { deleteVersion, fetchVersion, listVersions } from "../../lib/api";
+import type { VersionDetailResponse, VersionItem } from "../../lib/types";
+import { useLocale } from "../../i18n";
+
+interface VersionHistoryProps {
+  jobId: string | null;
+}
+
+export function VersionHistory({ jobId }: VersionHistoryProps) {
+  const { t } = useLocale();
+  const [versions, setVersions] = useState<VersionItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<VersionDetailResponse | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+
+  const loadVersions = useCallback(async () => {
+    if (!jobId) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await listVersions(jobId);
+      setVersions(response.versions);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load versions.");
+    } finally {
+      setLoading(false);
+    }
+  }, [jobId]);
+
+  useEffect(() => {
+    void loadVersions();
+  }, [loadVersions]);
+
+  const handleOpen = async (version: VersionItem) => {
+    if (!jobId) return;
+    setDetailLoading(true);
+    setError(null);
+    try {
+      const detail = await fetchVersion(jobId, version.name);
+      setSelected(detail);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load version.");
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  const handleDelete = async (version: VersionItem) => {
+    if (!jobId) return;
+    // eslint-disable-next-line no-alert
+    if (!window.confirm(t("versions.confirmDelete"))) return;
+    try {
+      await deleteVersion(jobId, version.name);
+      if (selected?.name === version.name) {
+        setSelected(null);
+      }
+      await loadVersions();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete version.");
+    }
+  };
+
+  if (!jobId) return null;
+
+  return (
+    <section className="versions-panel">
+      <div className="versions-header">
+        <h2>{t("versions.title")}</h2>
+        <button
+          type="button"
+          className="ghost-button"
+          onClick={() => void loadVersions()}
+          disabled={loading}
+        >
+          {loading ? t("versions.loading") : t("versions.refresh")}
+        </button>
+      </div>
+      {error ? <p className="error-text">{error}</p> : null}
+      {versions.length === 0 && !loading ? (
+        <p className="muted-copy">{t("versions.empty")}</p>
+      ) : (
+        <ul className="versions-list">
+          {versions.map((version) => (
+            <li key={version.name} className="versions-item">
+              <div className="versions-item-main">
+                <strong>{t("versions.round")} #{version.round}</strong>
+                <span className="muted-copy">
+                  {version.slide_count} {t("versions.slides")}
+                </span>
+                {version.created_at ? (
+                  <span className="muted-copy versions-timestamp">
+                    {new Date(version.created_at * 1000).toLocaleString()}
+                  </span>
+                ) : null}
+              </div>
+              <div className="versions-item-actions">
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={() => void handleOpen(version)}
+                  disabled={detailLoading}
+                >
+                  {t("versions.view")}
+                </button>
+                <button
+                  type="button"
+                  className="ghost-button ghost-danger"
+                  onClick={() => void handleDelete(version)}
+                >
+                  {t("versions.delete")}
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+      {selected ? (
+        <div className="versions-detail">
+          <div className="versions-detail-header">
+            <strong>{selected.name}</strong>
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={() => setSelected(null)}
+            >
+              {t("versions.close")}
+            </button>
+          </div>
+          <div className="versions-slide-grid">
+            {selected.slides.map((slide) => (
+              <div key={slide.index} className="versions-slide">
+                <div
+                  className="versions-slide-frame"
+                  dangerouslySetInnerHTML={{ __html: slide.content }}
+                />
+                <div className="versions-slide-caption">
+                  #{slide.index} {slide.name}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
+}

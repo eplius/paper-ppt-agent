@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import base64
+import time
 from collections.abc import AsyncIterator
 
 from anthropic import AsyncAnthropic
 from pydantic import BaseModel
 
+from backend.usage.tracker import current_usage_context, usage_tracker
+
 from .base import LLMProvider
+from .retry import call_with_retry
 from .types import (
     ContentBlock,
     LLMMessage,
@@ -84,7 +88,9 @@ class AnthropicProvider(LLMProvider):
         if system_text:
             kwargs["system"] = system_text
 
-        resp = await self._client.messages.create(**kwargs)
+        t0 = time.monotonic()
+        resp = await call_with_retry(lambda: self._client.messages.create(**kwargs))
+        duration_ms = int((time.monotonic() - t0) * 1000)
 
         content = ""
         for block in resp.content:
@@ -94,6 +100,18 @@ class AnthropicProvider(LLMProvider):
         usage = TokenUsage(
             prompt_tokens=resp.usage.input_tokens,
             completion_tokens=resp.usage.output_tokens,
+        )
+        ctx = current_usage_context()
+        usage_tracker.record(
+            provider="anthropic",
+            model=model,
+            prompt_tokens=resp.usage.input_tokens,
+            completion_tokens=resp.usage.output_tokens,
+            job_id=ctx.get("job_id"),
+            stage=ctx.get("stage"),
+            page=ctx.get("page"),
+            attempt=ctx.get("attempt") or 1,
+            duration_ms=duration_ms,
         )
         return LLMResponse(content=content, usage=usage, raw=resp)
 

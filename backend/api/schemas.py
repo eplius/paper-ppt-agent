@@ -23,12 +23,19 @@ class ModelConfig(BaseModel):
     base_url: str | None = None
 
 
+class StyleOverrides(BaseModel):
+    palette: list[str] | None = None  # e.g. ["#0b1220", "#ff8a3d", "#f5f7fb"]
+    font: str | None = None
+    density: str | None = None        # "compact" | "normal" | "spacious"
+
+
 class GenerationOptions(BaseModel):
     canvas_format: str = "ppt169"
     style: str = "academic"
     num_pages: int | None = None
     language: str = "en"
     detail_level: str = "normal"
+    style_overrides: StyleOverrides | None = None
 
 
 class GenerateRequest(BaseModel):

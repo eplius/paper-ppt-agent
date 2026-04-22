@@ -90,6 +90,7 @@ class Settings(BaseSettings):
     # Limits
     max_concurrent_jobs: int = 3
     job_timeout_seconds: int = 1800  # 30 minutes
+    max_upload_bytes: int = 64 * 1024 * 1024  # 64 MB per uploaded paper
 
 
 settings = Settings()

@@ -27,12 +27,19 @@ export interface ProvidersResponse {
   providers: ProviderListItem[];
 }
 
+export interface StyleOverridesPayload {
+  palette?: string[];
+  font?: string;
+  density?: "compact" | "normal" | "spacious";
+}
+
 export interface GenerationOptions {
   canvas_format: string;
   style: string;
   num_pages?: number;
   language: string;
   detail_level: string;
+  style_overrides?: StyleOverridesPayload;
 }
 
 export interface GenerateRequestPayload {
@@ -133,4 +140,33 @@ export interface RefineRequestPayload {
 export interface RefineResponse {
   job_id: string;
   status: string;
+}
+
+export interface VersionItem {
+  round: number;
+  name: string;
+  path: string;
+  slide_count: number;
+  created_at: number;
+}
+
+export interface VersionsResponse {
+  job_id: string;
+  project_dir?: string | null;
+  current_slide_count: number;
+  versions: VersionItem[];
+}
+
+export interface VersionSlide {
+  index: number;
+  name: string;
+  content: string;
+}
+
+export interface VersionDetailResponse {
+  job_id: string;
+  round: number;
+  name: string;
+  path: string;
+  slides: VersionSlide[];
 }

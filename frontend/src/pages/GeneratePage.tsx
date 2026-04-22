@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { Layout } from "../components/layout/Layout";
 import { ModelSelector } from "../components/config/ModelSelector";
 import { OptionsPanel } from "../components/config/OptionsPanel";
-import { StylePicker } from "../components/config/StylePicker";
+import { StylePicker, type StyleOverrides } from "../components/config/StylePicker";
 import { SlidePreview } from "../components/preview/SlidePreview";
 import { SlideViewer } from "../components/preview/SlideViewer";
 import { AgentLog } from "../components/progress/AgentLog";
@@ -68,6 +68,7 @@ export function GeneratePage() {
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [style, setStyle] = useState("academic");
+  const [styleOverrides, setStyleOverrides] = useState<StyleOverrides>({});
   const [canvasFormat, setCanvasFormat] = useState("ppt169");
   const [language, setLanguage] = useState<string>(locale);
   const [numPages, setNumPages] = useState("");
@@ -163,7 +164,12 @@ export function GeneratePage() {
             onBaseUrlChange={setBaseUrl}
             onApiKeyChange={setApiKey}
           />
-          <StylePicker value={style} onChange={setStyle} />
+          <StylePicker
+            value={style}
+            onChange={setStyle}
+            overrides={styleOverrides}
+            onOverridesChange={setStyleOverrides}
+          />
           <OptionsPanel
             canvasFormat={canvasFormat}
             language={language}
@@ -199,6 +205,10 @@ export function GeneratePage() {
                   language,
                   num_pages: numPages ? Number(numPages) : undefined,
                   detail_level: detailLevel,
+                  style_overrides:
+                    styleOverrides.palette || styleOverrides.font || styleOverrides.density
+                      ? styleOverrides
+                      : undefined,
                 },
               });
               connect(jobId);

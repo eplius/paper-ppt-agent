@@ -8,27 +8,45 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, status
 
 from backend.api.schemas import GenerateRequest, GenerateResponse
+from backend.config import settings
 from backend.session.manager import session_manager
 from backend.session.progress import payloads_from_progress_event
 
 router = APIRouter()
 
 
+async def _iterate_pipeline(job_id: str, request: Any) -> None:
+    from backend.orchestrator.pipeline import run_pipeline
+
+    async for event in run_pipeline(request):
+        current_job = session_manager.get_job(job_id)
+        if current_job is None:
+            return
+        for payload, updates in payloads_from_progress_event(job_id, current_job, event):
+            session_manager.record_event(job_id, payload, **updates)
+
+
 async def _run_generation_job(job_id: str, request: Any) -> None:
-    from backend.orchestrator.pipeline import ProgressEvent, run_pipeline
+    from backend.orchestrator.pipeline import ProgressEvent
 
     job = session_manager.get_job(job_id)
     if job is None:
         return
 
     try:
-        async for event in run_pipeline(request):
-            current_job = session_manager.get_job(job_id)
-            if current_job is None:
-                return
-
-            for payload, updates in payloads_from_progress_event(job_id, current_job, event):
-                session_manager.record_event(job_id, payload, **updates)
+        timeout = settings.job_timeout_seconds
+        if timeout and timeout > 0:
+            await asyncio.wait_for(_iterate_pipeline(job_id, request), timeout=timeout)
+        else:
+            await _iterate_pipeline(job_id, request)
+    except asyncio.TimeoutError:
+        current_job = session_manager.get_job(job_id)
+        if current_job is None:
+            return
+        msg = f"Job exceeded timeout of {settings.job_timeout_seconds}s"
+        error_event = ProgressEvent("error", "error", msg, current_job.progress)
+        for payload, updates in payloads_from_progress_event(job_id, current_job, error_event):
+            session_manager.record_event(job_id, payload, **updates)
     except asyncio.CancelledError:
         session_manager.mark_job_cancelled(job_id)
         raise
@@ -80,6 +98,11 @@ async def generate_presentation(request: GenerateRequest) -> GenerateResponse:
         instruction=request.instruction,
         language=request.options.language,
         detail_level=request.options.detail_level,
+        style_overrides=(
+            request.options.style_overrides.model_dump(exclude_none=True)
+            if request.options.style_overrides
+            else None
+        ),
     )
 
     task = asyncio.create_task(_run_generation_job(job.id, pipeline_request))

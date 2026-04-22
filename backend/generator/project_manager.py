@@ -72,8 +72,22 @@ def clone_project_for_refine(
     and current SVGs, but starts with a clean ``exports/`` and ``svg_archive/``
     so parallel refine jobs cannot overwrite each other's outputs.
     """
+    source_project_dir = Path(source_project_dir)
+    if not source_project_dir.exists():
+        raise FileNotFoundError(
+            f"Source project directory does not exist: {source_project_dir}"
+        )
+
     target_base = base_dir or source_project_dir.parent
-    target_dir = target_base / f"{source_project_dir.name}_refine_{refine_job_id}"
+    short_id = refine_job_id[:8]
+    target_dir = target_base / f"{source_project_dir.name}_refine_{short_id}"
+
+    # If a previous refine job re-used the same short id (unlikely but
+    # possible), disambiguate rather than crash.
+    suffix = 2
+    while target_dir.exists():
+        target_dir = target_base / f"{source_project_dir.name}_refine_{short_id}_{suffix}"
+        suffix += 1
 
     shutil.copytree(
         source_project_dir,

@@ -9,9 +9,65 @@ import type {
   RefineRequestPayload,
   RefineResponse,
   UploadResponse,
+  VersionDetailResponse,
+  VersionsResponse,
 } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "";
+
+export interface UsageSummaryResponse {
+  total_calls: number;
+  total_prompt: number;
+  total_completion: number;
+  total_tokens: number;
+}
+
+export interface UsageDailyRowResponse {
+  day: string;
+  calls: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+}
+
+export interface UsageModelRowResponse {
+  model: string;
+  calls: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+}
+
+export interface UsageStageRowResponse {
+  stage: string;
+  calls: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+}
+
+export interface UsageRecordResponse {
+  ts: string;
+  day: string;
+  provider: string;
+  model: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  job_id: string | null;
+  stage: string | null;
+  page: number | null;
+  attempt: number;
+  duration_ms: number;
+}
+
+export interface UsageSnapshotResponse {
+  summary: UsageSummaryResponse;
+  daily: UsageDailyRowResponse[];
+  by_model: UsageModelRowResponse[];
+  by_stage: UsageStageRowResponse[];
+  recent: UsageRecordResponse[];
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, init);
@@ -85,6 +141,35 @@ export async function refinePresentation(
 
 export async function deleteSession(sessionId: string): Promise<void> {
   await request<void>(`/api/session/${sessionId}`, { method: "DELETE" });
+}
+
+export async function listVersions(jobId: string): Promise<VersionsResponse> {
+  return request<VersionsResponse>(`/api/versions/${jobId}`);
+}
+
+export async function fetchVersion(jobId: string, roundName: string): Promise<VersionDetailResponse> {
+  return request<VersionDetailResponse>(`/api/versions/${jobId}/${roundName}`);
+}
+
+export async function deleteVersion(jobId: string, roundName: string): Promise<void> {
+  await request<void>(`/api/versions/${jobId}/${roundName}`, { method: "DELETE" });
+}
+
+export async function fetchUsageSnapshot(): Promise<UsageSnapshotResponse> {
+  const [summary, daily, byModel, byStage, records] = await Promise.all([
+    request<UsageSummaryResponse>("/api/usage/summary"),
+    request<{ rows: UsageDailyRowResponse[] }>("/api/usage/daily"),
+    request<{ rows: UsageModelRowResponse[] }>("/api/usage/by-model"),
+    request<{ rows: UsageStageRowResponse[] }>("/api/usage/by-stage"),
+    request<{ rows: UsageRecordResponse[] }>("/api/usage/records?limit=50"),
+  ]);
+  return {
+    summary,
+    daily: daily.rows ?? [],
+    by_model: byModel.rows ?? [],
+    by_stage: byStage.rows ?? [],
+    recent: records.rows ?? [],
+  };
 }
 
 export function getDownloadUrl(jobId: string): string {
