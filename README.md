@@ -2,7 +2,7 @@
 
 中文 | [English](./README.en.md)
 
-一个本地论文生成 PPT 工具，支持从论文 PDF 或 TeX 源码生成可编辑的 PowerPoint。后端基于 FastAPI，前端基于 React。
+一个本地论文生成 PPT 工具，支持从论文 PDF 或 TeX 源码生成可编辑的 PowerPoint。
 
 ![截图](./screenshot.png)
 
@@ -23,6 +23,7 @@
   - OpenAI
   - Anthropic
   - Gemini
+  - 自定义BaseURL接口兼容，模型会显著影响生成效果
 
 ## 快速开始
 
