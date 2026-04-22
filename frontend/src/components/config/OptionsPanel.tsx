@@ -3,14 +3,18 @@ import { useLocale } from "../../i18n";
 
 interface OptionsPanelProps {
   canvasFormat: string;
-  language: string;
+  languageMode: "zh" | "en" | "custom";
+  customLanguage: string;
   numPages: string;
   detailLevel: string;
+  timeoutSeconds: string;
   instruction: string;
   onCanvasFormatChange: (value: string) => void;
-  onLanguageChange: (value: string) => void;
+  onLanguageModeChange: (value: "zh" | "en" | "custom") => void;
+  onCustomLanguageChange: (value: string) => void;
   onNumPagesChange: (value: string) => void;
   onDetailLevelChange: (value: string) => void;
+  onTimeoutSecondsChange: (value: string) => void;
   onInstructionChange: (value: string) => void;
 }
 
@@ -32,11 +36,24 @@ export function OptionsPanel(props: OptionsPanelProps) {
         </label>
         <label className="form-field">
           <span>{t("options.language")}</span>
-          <select value={props.language} onChange={(event) => props.onLanguageChange(event.target.value)}>
+          <select
+            value={props.languageMode}
+            onChange={(event) =>
+              props.onLanguageModeChange(event.target.value as "zh" | "en" | "custom")
+            }
+          >
             <option value="zh">{t("options.languageZh")}</option>
             <option value="en">{t("options.languageEn")}</option>
-            <option value="bilingual">{t("options.languageBilingual")}</option>
+            <option value="custom">{t("options.languageCustom")}</option>
           </select>
+          {props.languageMode === "custom" ? (
+            <input
+              type="text"
+              value={props.customLanguage}
+              onChange={(event) => props.onCustomLanguageChange(event.target.value)}
+              placeholder={t("options.languageCustomPlaceholder")}
+            />
+          ) : null}
         </label>
         <label className="form-field">
           <span>{t("options.pages")}</span>
@@ -55,6 +72,16 @@ export function OptionsPanel(props: OptionsPanelProps) {
             <option value="high">{t("options.detailHigh")}</option>
             <option value="very_high">{t("options.detailVeryHigh")}</option>
           </select>
+        </label>
+        <label className="form-field">
+          <span>{t("options.timeout")}</span>
+          <input
+            type="number"
+            min="1"
+            value={props.timeoutSeconds}
+            onChange={(event) => props.onTimeoutSecondsChange(event.target.value)}
+            placeholder={t("options.timeoutPlaceholder")}
+          />
         </label>
       </div>
       <label className="form-field">

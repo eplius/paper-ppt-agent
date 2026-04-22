@@ -45,6 +45,7 @@ class GenerationRequest:
     instruction: str = ""
     language: str = "en"
     detail_level: str = "normal"
+    timeout_seconds: int | None = None
     style_overrides: dict | None = None  # {palette: [...], font: "...", density: "..."}
 
 
@@ -279,6 +280,7 @@ class RefineRequest:
     style: str = "academic"
     language: str = "en"
     detail_level: str = "normal"
+    timeout_seconds: int | None = None
     target_pages: list[int] | None = None
     allow_structure_changes: bool = False
     style_overrides: dict | None = None

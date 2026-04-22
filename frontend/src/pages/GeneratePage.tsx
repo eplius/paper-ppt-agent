@@ -14,6 +14,7 @@ import { useGeneration } from "../hooks/useGeneration";
 import { useLocale } from "../i18n";
 
 const ROUTING_PROFILE_STORAGE_KEY = "paper-ppt-agent-routing-profiles-v1";
+type LanguageMode = "zh" | "en" | "custom";
 
 interface RoutingProfile {
   model: string;
@@ -70,9 +71,11 @@ export function GeneratePage() {
   const [style, setStyle] = useState("academic");
   const [styleOverrides, setStyleOverrides] = useState<StyleOverrides>({});
   const [canvasFormat, setCanvasFormat] = useState("ppt169");
-  const [language, setLanguage] = useState<string>(locale);
+  const [languageMode, setLanguageMode] = useState<LanguageMode>(locale === "zh" ? "zh" : "en");
+  const [customLanguage, setCustomLanguage] = useState("");
   const [numPages, setNumPages] = useState("");
   const [detailLevel, setDetailLevel] = useState("normal");
+  const [timeoutSeconds, setTimeoutSeconds] = useState("");
   const [instruction, setInstruction] = useState("");
 
   useEffect(() => {
@@ -126,7 +129,7 @@ export function GeneratePage() {
   }, [apiKey, baseUrl, model, provider]);
 
   useEffect(() => {
-    setLanguage((current) => (current === "en" || current === "zh" ? locale : current));
+    setLanguageMode((current) => (current === "custom" ? current : locale === "zh" ? "zh" : "en"));
   }, [locale]);
 
   useEffect(() => {
@@ -172,20 +175,30 @@ export function GeneratePage() {
           />
           <OptionsPanel
             canvasFormat={canvasFormat}
-            language={language}
+            languageMode={languageMode}
+            customLanguage={customLanguage}
             numPages={numPages}
             detailLevel={detailLevel}
+            timeoutSeconds={timeoutSeconds}
             instruction={instruction}
             onCanvasFormatChange={setCanvasFormat}
-            onLanguageChange={setLanguage}
+            onLanguageModeChange={setLanguageMode}
+            onCustomLanguageChange={setCustomLanguage}
             onNumPagesChange={setNumPages}
             onDetailLevelChange={setDetailLevel}
+            onTimeoutSecondsChange={setTimeoutSeconds}
             onInstructionChange={setInstruction}
           />
           <button
             type="button"
             className="primary-button full-width launch-button"
-            disabled={!uploadSession || !provider || !model || !apiKey}
+            disabled={
+              !uploadSession ||
+              !provider ||
+              !model ||
+              !apiKey ||
+              (languageMode === "custom" && !customLanguage.trim())
+            }
             onClick={async () => {
               if (!uploadSession) {
                 return;
@@ -202,9 +215,10 @@ export function GeneratePage() {
                 options: {
                   canvas_format: canvasFormat,
                   style,
-                  language,
+                  language: resolveRequestedLanguage(languageMode, customLanguage),
                   num_pages: numPages ? Number(numPages) : undefined,
                   detail_level: detailLevel,
+                  timeout_seconds: parseOptionalPositiveInt(timeoutSeconds),
                   style_overrides:
                     styleOverrides.palette || styleOverrides.font || styleOverrides.density
                       ? styleOverrides
@@ -221,4 +235,23 @@ export function GeneratePage() {
       </section>
     </Layout>
   );
+}
+
+function parseOptionalPositiveInt(value: string): number | undefined {
+  const normalized = value.trim();
+  if (!normalized) {
+    return undefined;
+  }
+  const parsed = Number(normalized);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return undefined;
+  }
+  return Math.floor(parsed);
+}
+
+function resolveRequestedLanguage(languageMode: LanguageMode, customLanguage: string): string {
+  if (languageMode === "custom") {
+    return customLanguage.trim();
+  }
+  return languageMode;
 }

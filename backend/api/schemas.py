@@ -35,6 +35,7 @@ class GenerationOptions(BaseModel):
     num_pages: int | None = None
     language: str = "en"
     detail_level: str = "normal"
+    timeout_seconds: int | None = Field(default=None, ge=1)
     style_overrides: StyleOverrides | None = None
 
 

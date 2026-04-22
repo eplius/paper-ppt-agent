@@ -8,7 +8,6 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, status
 
 from backend.api.schemas import GenerateRequest, GenerateResponse
-from backend.config import settings
 from backend.session.manager import session_manager
 from backend.session.progress import payloads_from_progress_event
 
@@ -33,8 +32,8 @@ async def _run_generation_job(job_id: str, request: Any) -> None:
     if job is None:
         return
 
+    timeout = getattr(request, "timeout_seconds", None)
     try:
-        timeout = settings.job_timeout_seconds
         if timeout and timeout > 0:
             await asyncio.wait_for(_iterate_pipeline(job_id, request), timeout=timeout)
         else:
@@ -43,7 +42,7 @@ async def _run_generation_job(job_id: str, request: Any) -> None:
         current_job = session_manager.get_job(job_id)
         if current_job is None:
             return
-        msg = f"Job exceeded timeout of {settings.job_timeout_seconds}s"
+        msg = f"Job exceeded timeout of {timeout}s"
         error_event = ProgressEvent("error", "error", msg, current_job.progress)
         for payload, updates in payloads_from_progress_event(job_id, current_job, error_event):
             session_manager.record_event(job_id, payload, **updates)
@@ -98,6 +97,7 @@ async def generate_presentation(request: GenerateRequest) -> GenerateResponse:
         instruction=request.instruction,
         language=request.options.language,
         detail_level=request.options.detail_level,
+        timeout_seconds=request.options.timeout_seconds,
         style_overrides=(
             request.options.style_overrides.model_dump(exclude_none=True)
             if request.options.style_overrides

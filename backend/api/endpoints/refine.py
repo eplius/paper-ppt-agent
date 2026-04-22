@@ -8,7 +8,6 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, status
 
 from backend.api.schemas import RefineRequest, RefineResponse
-from backend.config import settings
 from backend.session.manager import session_manager
 from backend.session.progress import payloads_from_progress_event
 
@@ -33,8 +32,8 @@ async def _run_refine_job(job_id: str, request: Any) -> None:
     if job is None:
         return
 
+    timeout = getattr(request, "timeout_seconds", None)
     try:
-        timeout = settings.job_timeout_seconds
         if timeout and timeout > 0:
             await asyncio.wait_for(_iterate_refine_pipeline(job_id, request), timeout=timeout)
         else:
@@ -43,7 +42,7 @@ async def _run_refine_job(job_id: str, request: Any) -> None:
         current_job = session_manager.get_job(job_id)
         if current_job is None:
             return
-        msg = f"Refine job exceeded timeout of {settings.job_timeout_seconds}s"
+        msg = f"Refine job exceeded timeout of {timeout}s"
         error_event = ProgressEvent("error", "error", msg, current_job.progress)
         for payload, updates in payloads_from_progress_event(job_id, current_job, error_event):
             session_manager.record_event(job_id, payload, **updates)
@@ -150,6 +149,7 @@ async def refine_presentation(request: RefineRequest) -> RefineResponse:
         style=options.style or parent_job.style or "academic",
         language=options.language or parent_job.language or "en",
         detail_level=options.detail_level or parent_job.detail_level or "normal",
+        timeout_seconds=options.timeout_seconds,
         target_pages=request.target_pages,
         allow_structure_changes=request.allow_structure_changes,
         style_overrides=(

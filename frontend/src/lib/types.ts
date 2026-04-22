@@ -39,6 +39,7 @@ export interface GenerationOptions {
   num_pages?: number;
   language: string;
   detail_level: string;
+  timeout_seconds?: number;
   style_overrides?: StyleOverridesPayload;
 }
 

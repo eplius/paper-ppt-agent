@@ -10,6 +10,30 @@ from backend.parser.paper_model import ParsedPaper
 PROMPT_PATH = Path(__file__).parent / "prompts" / "research.md"
 
 
+def _language_guidance(language: str) -> str:
+    guidance = {
+        "zh": (
+            "Write all slide titles, bullets, callouts, and presenter-facing content in Simplified Chinese. "
+            "Keep paper titles, author names, model names, dataset names, and metric abbreviations in their original form when needed."
+        ),
+        "en": (
+            "Write all slide titles, bullets, callouts, and presenter-facing content in English."
+        ),
+        "bilingual": (
+            "Write slide titles and main bullets in bilingual Chinese and English where useful. "
+            "Keep terminology aligned across both languages and avoid mixing untranslated fragments mid-sentence."
+        ),
+    }
+    normalized = language.strip().lower()
+    if normalized in guidance:
+        return guidance[normalized]
+    return (
+        "Treat the requested language literally and write all slide titles, bullets, callouts, annotations, "
+        f"and presenter-facing content in {language.strip() or 'the requested language'}. "
+        "Keep proper nouns, paper titles, dataset names, model names, and metric abbreviations in their original form when needed."
+    )
+
+
 async def analyze_paper(
     paper: ParsedPaper,
     llm: LLMProvider,
@@ -70,24 +94,10 @@ async def analyze_paper(
             "(typically 8-15 slides for a standard paper)"
         )
 
-    language_guidance = {
-        "zh": (
-            "Write all slide titles, bullets, callouts, and presenter-facing content in Simplified Chinese. "
-            "Keep paper titles, author names, model names, dataset names, and metric abbreviations in their original form when needed."
-        ),
-        "en": (
-            "Write all slide titles, bullets, callouts, and presenter-facing content in English."
-        ),
-        "bilingual": (
-            "Write slide titles and main bullets in bilingual Chinese and English where useful. "
-            "Keep terminology aligned across both languages and avoid mixing untranslated fragments mid-sentence."
-        ),
-    }
-
     user_parts.append(
         "\n## Target Language\n\n"
         f"{language}\n\n"
-        f"{language_guidance.get(language, language_guidance['en'])}"
+        f"{_language_guidance(language)}"
     )
 
     user_parts.append(

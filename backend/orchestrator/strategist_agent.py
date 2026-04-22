@@ -10,6 +10,22 @@ from backend.llm import LLMMessage, LLMProvider, LLMResponse
 PROMPT_PATH = Path(__file__).parent / "prompts" / "strategist.md"
 
 
+def _language_constraint(language: str) -> str:
+    normalized = language.strip().lower()
+    if normalized == "zh":
+        return "All slide titles, labels, bullets, and annotations must be in Simplified Chinese except proper nouns."
+    if normalized == "en":
+        return "All slide titles, labels, bullets, and annotations must be in English."
+    if normalized == "bilingual":
+        return (
+            "Page titles and core bullets may include both Chinese and English, but each line must stay readable and deliberate."
+        )
+    return (
+        f"Treat `{language}` as a literal target-language request and keep all visible slide text fully in {language}, "
+        "except proper nouns that must remain in their original form."
+    )
+
+
 async def create_design_spec(
     manuscript: str,
     llm: LLMProvider,
@@ -68,9 +84,7 @@ async def create_design_spec(
         "\n## Hard Constraints",
         "- Respect the selected design style. Do not silently fall back to a default academic theme when another style is selected.",
         f"- The visible slide language must be `{language}`.",
-        "- If language is `zh`, all slide titles, labels, bullets, and annotations must be in Simplified Chinese except proper nouns.",
-        "- If language is `en`, all slide titles, labels, bullets, and annotations must be in English.",
-        "- If language is `bilingual`, page titles and core bullets may include both Chinese and English, but each line must stay readable and deliberate.",
+        f"- {_language_constraint(language)}",
         "- Detail level `normal` should keep pages concise, `high` should allow moderately denser explanatory content, and `very_high` should accommodate richer explanations and fuller evidence coverage without becoming unreadable.",
     ]
 
