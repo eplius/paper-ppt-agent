@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import ReactECharts from "echarts-for-react";
+import type { EChartsOption } from "echarts";
 import { Layout } from "../components/layout/Layout";
 import { useLocale } from "../i18n";
 import { fetchUsageSnapshot } from "../lib/api";
@@ -61,36 +63,6 @@ function formatNumber(n: number): string {
   return new Intl.NumberFormat().format(n);
 }
 
-function BarChart({ rows, keyField, valueField, max }: {
-  rows: Array<Record<string, unknown>>;
-  keyField: string;
-  valueField: string;
-  max: number;
-}) {
-  if (rows.length === 0) {
-    return <p className="muted-copy">No data yet.</p>;
-  }
-  return (
-    <div className="logs-bars">
-      {rows.map((row, idx) => {
-        const value = Number(row[valueField] ?? 0);
-        const pct = max > 0 ? (value / max) * 100 : 0;
-        return (
-          <div key={idx} className="logs-bar-row">
-            <span className="logs-bar-label" title={String(row[keyField])}>
-              {String(row[keyField])}
-            </span>
-            <div className="logs-bar-track">
-              <div className="logs-bar-fill" style={{ width: `${pct}%` }} />
-            </div>
-            <span className="logs-bar-value">{formatNumber(value)}</span>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 export function LogsPage() {
   const { t, locale } = useLocale();
   const [summary, setSummary] = useState<Summary>(EMPTY_SUMMARY);
@@ -99,6 +71,21 @@ export function LogsPage() {
   const [byStage, setByStage] = useState<StageRow[]>([]);
   const [records, setRecords] = useState<UsageRecord[]>([]);
   const [connected, setConnected] = useState(false);
+  const [chartRevision, setChartRevision] = useState(0);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const refreshCharts = () => {
+      setChartRevision((current) => current + 1);
+    };
+    const observer = new MutationObserver(refreshCharts);
+    observer.observe(root, { attributes: true, attributeFilter: ["data-theme"] });
+    const frame = window.requestAnimationFrame(refreshCharts);
+    return () => {
+      observer.disconnect();
+      window.cancelAnimationFrame(frame);
+    };
+  }, []);
 
   useEffect(() => {
     let disposed = false;
@@ -156,16 +143,16 @@ export function LogsPage() {
     };
   }, []);
 
-  const maxDaily = useMemo(
-    () => Math.max(1, ...daily.map((d) => d.total_tokens)),
+  const dailyRows = useMemo(
+    () => [...daily].sort((left, right) => left.day.localeCompare(right.day)),
     [daily],
   );
-  const maxModel = useMemo(
-    () => Math.max(1, ...byModel.map((d) => d.total_tokens)),
+  const topModels = useMemo(
+    () => [...byModel].sort((left, right) => right.total_tokens - left.total_tokens).slice(0, 6),
     [byModel],
   );
-  const maxStage = useMemo(
-    () => Math.max(1, ...byStage.map((d) => d.total_tokens)),
+  const stageRows = useMemo(
+    () => [...byStage].sort((left, right) => right.total_tokens - left.total_tokens),
     [byStage],
   );
 
@@ -177,13 +164,235 @@ export function LogsPage() {
     second: "2-digit",
   });
 
+  const chartColors = useMemo(() => {
+    const isDark = document.documentElement.dataset.theme === "dark";
+    const styles = window.getComputedStyle(document.documentElement);
+    const text = styles.getPropertyValue("--text").trim() || (isDark ? "#f6efe6" : "#211710");
+    const surfaceStrong = styles.getPropertyValue("--surface-strong").trim() || (isDark ? "#1d1613" : "#fffaf5");
+    return {
+      text: isDark ? "#f6efe6" : text,
+      muted: isDark ? "#d7c6b7" : "#5f493a",
+      line: isDark ? "rgba(255, 244, 232, 0.15)" : "rgba(87, 58, 38, 0.18)",
+      surfaceStrong,
+      tooltipBg: isDark ? "rgba(21, 16, 14, 0.98)" : "rgba(255, 250, 245, 0.99)",
+      tooltipText: isDark ? "#f6efe6" : "#211710",
+      tooltipBorder: isDark ? "rgba(255, 139, 71, 0.26)" : "rgba(204, 95, 27, 0.28)",
+    };
+  }, [chartRevision]);
+
+  const tooltipPosition = useMemo(
+    () =>
+      (
+        point: number[],
+        _params: unknown,
+        _dom: unknown,
+        _rect: unknown,
+        size: { contentSize: number[]; viewSize: number[] },
+      ) => {
+        const [mouseX, mouseY] = point;
+        const [contentWidth, contentHeight] = size.contentSize;
+        const [viewWidth, viewHeight] = size.viewSize;
+        return [
+          Math.min(viewWidth - contentWidth - 12, Math.max(12, mouseX + 14)),
+          Math.min(viewHeight - contentHeight - 12, Math.max(12, mouseY + 14)),
+        ];
+      },
+    [],
+  );
+
+  const dailyOption = useMemo<EChartsOption>(() => ({
+    animationDuration: 700,
+    animationDurationUpdate: 450,
+    textStyle: { color: chartColors.text, fontFamily: "Aptos, Segoe UI, sans-serif" },
+    grid: { left: 18, right: 18, top: 28, bottom: 18, containLabel: true },
+    tooltip: {
+      appendToBody: true,
+      trigger: "axis",
+      position: tooltipPosition,
+      backgroundColor: chartColors.tooltipBg,
+      borderColor: chartColors.tooltipBorder,
+      borderWidth: 1,
+      textStyle: { color: chartColors.tooltipText, fontSize: 13, fontWeight: 600 },
+      extraCssText: "border-radius:12px;padding:10px 12px;line-height:1.5;box-shadow:0 16px 36px rgba(0,0,0,0.18);",
+      valueFormatter: (value) => formatNumber(Number(value ?? 0)),
+    },
+    xAxis: {
+      type: "category",
+      boundaryGap: false,
+      data: dailyRows.map((row) => row.day.slice(5)),
+      axisLine: { lineStyle: { color: chartColors.line } },
+      axisTick: { show: false },
+      axisLabel: { color: chartColors.muted, fontSize: 12, fontWeight: 600 },
+    },
+    yAxis: {
+      type: "value",
+      splitNumber: 4,
+      axisLine: { show: false },
+      axisTick: { show: false },
+      axisLabel: {
+        color: chartColors.muted,
+        fontSize: 12,
+        fontWeight: 600,
+        formatter: (value: number) => formatNumber(value),
+      },
+      splitLine: { lineStyle: { color: chartColors.line } },
+    },
+    series: [
+      {
+        type: "line",
+        smooth: true,
+        showSymbol: false,
+        symbol: "circle",
+        symbolSize: 8,
+        data: dailyRows.map((row) => row.total_tokens),
+        lineStyle: { width: 3, color: "#ff8b47" },
+        itemStyle: { color: "#ffb37a" },
+        areaStyle: {
+          color: {
+            type: "linear",
+            x: 0,
+            y: 0,
+            x2: 0,
+            y2: 1,
+            colorStops: [
+              { offset: 0, color: "rgba(255, 139, 71, 0.34)" },
+              { offset: 1, color: "rgba(255, 139, 71, 0.02)" },
+            ],
+          },
+        },
+      },
+    ],
+  }), [chartColors, dailyRows, tooltipPosition]);
+
+  const modelOption = useMemo<EChartsOption>(() => ({
+    animationDuration: 650,
+    animationDurationUpdate: 400,
+    textStyle: { color: chartColors.text, fontFamily: "Aptos, Segoe UI, sans-serif" },
+    grid: { left: 18, right: 18, top: 18, bottom: 12, containLabel: true },
+    tooltip: {
+      appendToBody: true,
+      trigger: "axis",
+      position: tooltipPosition,
+      axisPointer: { type: "shadow" },
+      backgroundColor: chartColors.tooltipBg,
+      borderColor: chartColors.tooltipBorder,
+      borderWidth: 1,
+      textStyle: { color: chartColors.tooltipText, fontSize: 13, fontWeight: 600 },
+      extraCssText: "border-radius:12px;padding:10px 12px;line-height:1.5;box-shadow:0 16px 36px rgba(0,0,0,0.18);",
+      valueFormatter: (value) => formatNumber(Number(value ?? 0)),
+    },
+    xAxis: {
+      type: "value",
+      axisLine: { show: false },
+      axisTick: { show: false },
+      axisLabel: {
+        color: chartColors.muted,
+        fontSize: 12,
+        fontWeight: 600,
+        formatter: (value: number) => formatNumber(value),
+      },
+      splitLine: { lineStyle: { color: chartColors.line } },
+    },
+    yAxis: {
+      type: "category",
+      inverse: true,
+      data: topModels.map((row) => row.model),
+      axisLine: { show: false },
+      axisTick: { show: false },
+      axisLabel: {
+        color: chartColors.text,
+        fontSize: 12,
+        fontWeight: 600,
+        width: 126,
+        overflow: "truncate",
+      },
+    },
+    series: [
+      {
+        type: "bar",
+        barWidth: 14,
+        data: topModels.map((row) => row.total_tokens),
+        itemStyle: {
+          borderRadius: [0, 999, 999, 0],
+          color: {
+            type: "linear",
+            x: 0,
+            y: 0,
+            x2: 1,
+            y2: 0,
+            colorStops: [
+              { offset: 0, color: "#cc5f1b" },
+              { offset: 1, color: "#ffb37a" },
+            ],
+          },
+        },
+      },
+    ],
+  }), [chartColors, topModels, tooltipPosition]);
+
+  const stageOption = useMemo<EChartsOption>(() => ({
+    animationDuration: 700,
+    animationDurationUpdate: 450,
+    textStyle: { color: chartColors.text, fontFamily: "Aptos, Segoe UI, sans-serif" },
+    tooltip: {
+      appendToBody: true,
+      trigger: "item",
+      position: tooltipPosition,
+      backgroundColor: chartColors.tooltipBg,
+      borderColor: chartColors.tooltipBorder,
+      borderWidth: 1,
+      textStyle: { color: chartColors.tooltipText, fontSize: 13, fontWeight: 600 },
+      extraCssText: "border-radius:12px;padding:10px 12px;line-height:1.5;box-shadow:0 16px 36px rgba(0,0,0,0.18);",
+      formatter: (params: any) =>
+        `${String(params?.name ?? "")}<br/>${formatNumber(Number(params?.value ?? 0))} · ${Number(params?.percent ?? 0)}%`,
+    },
+    legend: {
+      bottom: 0,
+      icon: "circle",
+      textStyle: { color: chartColors.text, fontSize: 12 },
+      itemWidth: 10,
+      itemHeight: 10,
+    },
+    series: [
+      {
+        type: "pie",
+        radius: ["54%", "76%"],
+        center: ["50%", "42%"],
+        avoidLabelOverlap: true,
+        itemStyle: {
+          borderColor: chartColors.surfaceStrong,
+          borderWidth: 3,
+        },
+        label: {
+          color: chartColors.text,
+          fontSize: 12,
+          fontWeight: 600,
+          formatter: "{b}\n{d}%",
+          lineHeight: 18,
+        },
+        labelLine: {
+          lineStyle: { color: chartColors.muted },
+        },
+        data: stageRows.map((row, idx) => ({
+          name: row.stage,
+          value: row.total_tokens,
+          itemStyle: {
+            color: STAGE_COLORS[idx % STAGE_COLORS.length],
+          },
+        })),
+      },
+    ],
+  }), [chartColors, stageRows, tooltipPosition]);
+
+  const subtitle = t("logs.subtitle");
+
   return (
     <Layout>
       <section className="logs-page">
         <header className="logs-header">
           <h1>{t("logs.title")}</h1>
           <p className="muted-copy">
-            {t("logs.subtitle")}
+            {subtitle ? subtitle : null}
             <span
               className={`logs-status ${connected ? "logs-status-on" : "logs-status-off"}`}
             >
@@ -202,29 +411,26 @@ export function LogsPage() {
         <section className="logs-grid">
           <article className="logs-card">
             <h2>{t("logs.dailyTitle")}</h2>
-            <BarChart
-              rows={daily as unknown as Array<Record<string, unknown>>}
-              keyField="day"
-              valueField="total_tokens"
-              max={maxDaily}
+            <ChartPanel
+              hasData={dailyRows.length > 0}
+              option={dailyOption}
+              renderKey={`daily-${chartRevision}`}
             />
           </article>
           <article className="logs-card">
             <h2>{t("logs.byModel")}</h2>
-            <BarChart
-              rows={byModel as unknown as Array<Record<string, unknown>>}
-              keyField="model"
-              valueField="total_tokens"
-              max={maxModel}
+            <ChartPanel
+              hasData={topModels.length > 0}
+              option={modelOption}
+              renderKey={`model-${chartRevision}`}
             />
           </article>
           <article className="logs-card">
             <h2>{t("logs.byStage")}</h2>
-            <BarChart
-              rows={byStage as unknown as Array<Record<string, unknown>>}
-              keyField="stage"
-              valueField="total_tokens"
-              max={maxStage}
+            <ChartPanel
+              hasData={stageRows.length > 0}
+              option={stageOption}
+              renderKey={`stage-${chartRevision}`}
             />
           </article>
         </section>
@@ -272,6 +478,41 @@ export function LogsPage() {
         </section>
       </section>
     </Layout>
+  );
+}
+
+const STAGE_COLORS = [
+  "#ff8b47",
+  "#ffb37a",
+  "#ffd2b2",
+  "#93f3bf",
+  "#7ac8ff",
+  "#e0a3ff",
+];
+
+function ChartPanel({
+  hasData,
+  option,
+  renderKey,
+}: {
+  hasData: boolean;
+  option: EChartsOption;
+  renderKey: string;
+}) {
+  if (!hasData) {
+    return <p className="muted-copy">No data yet.</p>;
+  }
+  return (
+    <div className="logs-chart-shell">
+      <ReactECharts
+        key={renderKey}
+        option={option}
+        notMerge
+        lazyUpdate
+        opts={{ renderer: "svg" }}
+        className="logs-chart"
+      />
+    </div>
   );
 }
 

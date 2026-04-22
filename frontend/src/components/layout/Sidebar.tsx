@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useGeneration } from "../../hooks/useGeneration";
 import { useLocale } from "../../i18n";
@@ -6,6 +7,12 @@ export function Sidebar() {
   const { t, locale } = useLocale();
   const location = useLocation();
   const { history, activeJobId, removeHistory, reset } = useGeneration();
+  const [confirmState, setConfirmState] = useState<{
+    jobId: string;
+    top: number;
+    left: number;
+  } | null>(null);
+  const confirmRef = useRef<HTMLDivElement | null>(null);
   const searchParams = new URLSearchParams(location.search);
   const links = [
     { to: "/", label: t("sidebar.overview") },
@@ -21,6 +28,30 @@ export function Sidebar() {
     hour: "2-digit",
     minute: "2-digit",
   });
+
+  useEffect(() => {
+    if (!confirmState) {
+      return;
+    }
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (confirmRef.current && !confirmRef.current.contains(event.target as Node)) {
+        setConfirmState(null);
+      }
+    };
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setConfirmState(null);
+      }
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [confirmState]);
 
   return (
     <aside className="sidebar">
@@ -50,6 +81,7 @@ export function Sidebar() {
           {recentHistory.length > 0 ? (
             recentHistory.map((entry) => {
               const target = getHistoryTarget(entry, activeJobId);
+              const isConfirmOpen = confirmState?.jobId === entry.jobId;
               const isActive =
                 (target.startsWith("/generate") && location.pathname === "/generate" && searchParams.get("job") === entry.jobId) ||
                 (target === "/generate" && location.pathname === "/generate" && !searchParams.get("job")) ||
@@ -73,10 +105,55 @@ export function Sidebar() {
                     type="button"
                     className="history-delete"
                     aria-label={locale === "zh" ? "删除记录" : "Delete history item"}
-                    onClick={() => void removeHistory(entry.jobId)}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      setConfirmState((current) => {
+                        if (current?.jobId === entry.jobId) {
+                          return null;
+                        }
+                        return {
+                          jobId: entry.jobId,
+                          ...getDeleteConfirmPosition(event.clientX, event.clientY),
+                        };
+                      });
+                    }}
                   >
                     ×
                   </button>
+                  {isConfirmOpen ? (
+                    <div
+                      ref={confirmRef}
+                      className="history-delete-confirm"
+                      style={{
+                        top: `${confirmState.top}px`,
+                        left: `${confirmState.left}px`,
+                      }}
+                      role="dialog"
+                      aria-modal="false"
+                    >
+                      <p>{t("sidebar.confirmDelete")}</p>
+                      <div className="history-delete-confirm-actions">
+                        <button
+                          type="button"
+                          className="history-delete-confirm-btn"
+                          onClick={() => setConfirmState(null)}
+                        >
+                          {t("versions.close")}
+                        </button>
+                        <button
+                          type="button"
+                          className="history-delete-confirm-btn history-delete-confirm-btn-danger"
+                          onClick={() => {
+                            setConfirmState(null);
+                            void removeHistory(entry.jobId);
+                          }}
+                        >
+                          {t("versions.delete")}
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               );
             })
@@ -87,6 +164,15 @@ export function Sidebar() {
       </div>
     </aside>
   );
+}
+
+function getDeleteConfirmPosition(clientX: number, clientY: number) {
+  const width = 188;
+  const height = 96;
+  return {
+    left: Math.min(window.innerWidth - width - 12, Math.max(12, clientX - width + 20)),
+    top: Math.min(window.innerHeight - height - 12, Math.max(12, clientY - height - 10)),
+  };
 }
 
 function getHistoryTarget(

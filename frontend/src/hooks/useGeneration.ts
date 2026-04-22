@@ -20,6 +20,7 @@ const FINAL_JOB_STATUSES = new Set(["complete", "error", "cancelled"]);
 const HISTORY_LIMIT = 8;
 const LEGACY_GENERATION_STORAGE_KEY = "paper-ppt-agent-generation-v1";
 const GENERATION_STORAGE_KEY = "paper-ppt-agent-generation-v2";
+const PERSISTED_LOG_LIMIT = 200;
 
 interface RunConfigSnapshot {
   provider: string;
@@ -41,6 +42,8 @@ interface RunSnapshot {
   currentRunConfig?: RunConfigSnapshot;
   connectionStatus: ConnectionStatus;
 }
+
+type StoredRunSnapshot = Partial<RunSnapshot> & { jobId: string };
 
 interface GenerationState {
   uploadSession?: UploadResponse;
@@ -247,11 +250,37 @@ function serializeRunsForStorage(runs: Record<string, RunSnapshot>) {
         jobId,
         uploadSession: run.uploadSession,
         job: run.job,
+        logs: run.logs.slice(-PERSISTED_LOG_LIMIT),
         error: run.error,
         currentRunConfig: run.currentRunConfig,
         connectionStatus: "disconnected" as const,
-      } satisfies Partial<RunSnapshot> & { jobId: string; connectionStatus: ConnectionStatus },
+      } satisfies StoredRunSnapshot,
     ]),
+  );
+}
+
+function normalizeStoredRun(jobId: string, run?: Partial<RunSnapshot>): RunSnapshot {
+  return createRunSnapshot(jobId, {
+    uploadSession: run?.uploadSession,
+    job: run?.job,
+    slides: Array.isArray(run?.slides) ? run.slides : [],
+    logs: Array.isArray(run?.logs)
+      ? run.logs.filter((log): log is string => typeof log === "string")
+      : [],
+    selectedSlide: run?.selectedSlide,
+    error: run?.error,
+    result: run?.result,
+    currentRunConfig: run?.currentRunConfig,
+    connectionStatus: "disconnected",
+  });
+}
+
+function normalizeStoredRuns(runs?: Record<string, StoredRunSnapshot>) {
+  if (!runs || typeof runs !== "object") {
+    return {} as Record<string, RunSnapshot>;
+  }
+  return Object.fromEntries(
+    Object.entries(runs).map(([jobId, run]) => [jobId, normalizeStoredRun(jobId, run)]),
   );
 }
 
@@ -707,10 +736,28 @@ export const useGeneration = create<GenerationState>()(
     }),
     {
       name: GENERATION_STORAGE_KEY,
+      version: 1,
       storage: createJSONStorage(() => {
         clearLegacyGenerationStorage();
         return window.localStorage;
       }),
+      migrate: (persistedState) => {
+        const state = (persistedState ?? {}) as Partial<GenerationState> & {
+          runs?: Record<string, StoredRunSnapshot>;
+        };
+        const runs = normalizeStoredRuns(state.runs);
+        const currentRun = state.jobId ? runs[state.jobId] : undefined;
+        return {
+          ...state,
+          slides: currentRun?.slides ?? [],
+          logs: currentRun?.logs ?? [],
+          selectedSlide: currentRun?.selectedSlide,
+          history: Array.isArray(state.history) ? state.history : [],
+          runs,
+          connectionStatus: "disconnected" as const,
+          socketsByJob: {},
+        };
+      },
       partialize: (state) => ({
         uploadSession: state.uploadSession,
         jobId: state.jobId,
