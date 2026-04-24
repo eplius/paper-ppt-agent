@@ -20,6 +20,7 @@ export interface ProviderModel {
 export interface ProviderListItem {
   name: string;
   display_name: string;
+  default_base_url?: string | null;
   models: ProviderModel[];
 }
 

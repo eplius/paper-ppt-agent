@@ -16,6 +16,7 @@ async def get_providers() -> ProvidersResponse:
             ProviderListItem(
                 name=provider.name,
                 display_name=provider.display_name,
+                default_base_url=provider.default_base_url,
                 models=[
                     ProviderModel(
                         id=model.id,

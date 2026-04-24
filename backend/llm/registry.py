@@ -7,8 +7,11 @@ from importlib import import_module
 from .base import LLMProvider
 from .types import ModelInfo, ProviderInfo
 
+DEEPSEEK_BASE_URL = "https://api.deepseek.com"
+
 _PROVIDER_IMPORTS: dict[str, tuple[str, str]] = {
     "openai": ("backend.llm.provider_openai", "OpenAIProvider"),
+    "deepseek": ("backend.llm.provider_openai", "OpenAIProvider"),
     "anthropic": ("backend.llm.provider_anthropic", "AnthropicProvider"),
     "gemini": ("backend.llm.provider_gemini", "GeminiProvider"),
 }
@@ -31,6 +34,27 @@ _PROVIDER_INFO: dict[str, ProviderInfo] = {
                 supports_vision=True,
                 supports_structured_output=True,
                 context_window=200000,
+            ),
+        ],
+    ),
+    "deepseek": ProviderInfo(
+        name="deepseek",
+        display_name="DeepSeek",
+        default_base_url=DEEPSEEK_BASE_URL,
+        models=[
+            ModelInfo(
+                id="deepseek-v4-flash",
+                display_name="DeepSeek V4 Flash",
+                supports_vision=True,
+                supports_structured_output=True,
+                context_window=128000,
+            ),
+            ModelInfo(
+                id="deepseek-v4-pro",
+                display_name="DeepSeek V4 Pro",
+                supports_vision=True,
+                supports_structured_output=True,
+                context_window=128000,
             ),
         ],
     ),
@@ -108,8 +132,11 @@ def create_provider(
         raise ValueError(f"Unknown provider '{name}'. Available: {list(_PROVIDER_IMPORTS)}")
 
     cls = _load_provider_class(name)
-    if name == "openai":
-        return cls(api_key=api_key, base_url=base_url)
+    if name in {"openai", "deepseek"}:
+        resolved_base_url = base_url
+        if name == "deepseek" and not resolved_base_url:
+            resolved_base_url = DEEPSEEK_BASE_URL
+        return cls(api_key=api_key, base_url=resolved_base_url, provider_name=name)
     return cls(api_key=api_key)
 
 

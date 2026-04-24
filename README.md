@@ -21,6 +21,7 @@
 - Node.js 18+ 与 npm
 - 至少一种模型提供商的 API Key：
   - OpenAI
+  - DeepSeek
   - Anthropic
   - Gemini
   - 自定义BaseURL接口兼容，模型会显著影响生成效果

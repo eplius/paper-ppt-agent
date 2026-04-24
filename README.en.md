@@ -21,6 +21,7 @@ A local tool for generating editable PowerPoint decks from academic papers. It s
 - Node.js 18+ and npm
 - An API key for at least one supported provider:
   - OpenAI
+  - DeepSeek
   - Anthropic
   - Gemini
 

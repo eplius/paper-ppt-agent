@@ -66,9 +66,10 @@ class Settings(BaseSettings):
     port: int = 8000
 
     # LLM defaults
-    default_llm_provider: Literal["openai", "anthropic", "gemini"] = "openai"
+    default_llm_provider: Literal["openai", "deepseek", "anthropic", "gemini"] = "openai"
     default_llm_model: str = "gpt-4o"
     openai_api_key: str | None = None
+    deepseek_api_key: str | None = None
     anthropic_api_key: str | None = None
     gemini_api_key: str | None = None
 

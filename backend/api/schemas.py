@@ -17,7 +17,7 @@ class UploadResponse(BaseModel):
 
 
 class ModelConfig(BaseModel):
-    provider: str  # "openai", "anthropic", "gemini"
+    provider: str  # "openai", "deepseek", "anthropic", "gemini"
     model: str
     api_key: str
     base_url: str | None = None
@@ -112,6 +112,7 @@ class ProviderModel(BaseModel):
 class ProviderListItem(BaseModel):
     name: str
     display_name: str
+    default_base_url: str | None = None
     models: list[ProviderModel]
 
 

@@ -98,4 +98,5 @@ class ProviderInfo:
 
     name: str
     display_name: str
+    default_base_url: str | None = None
     models: list[ModelInfo] = field(default_factory=list)

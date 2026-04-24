@@ -41,6 +41,17 @@ function writeRoutingProfiles(profiles: RoutingProfileMap) {
   window.localStorage.setItem(ROUTING_PROFILE_STORAGE_KEY, JSON.stringify(profiles));
 }
 
+function getProviderDefaults(
+  providers: { name: string; models: { id: string }[]; default_base_url?: string | null }[],
+  providerName: string,
+) {
+  const selectedProvider = providers.find((item) => item.name === providerName);
+  return {
+    model: selectedProvider?.models[0]?.id ?? "",
+    baseUrl: selectedProvider?.default_base_url ?? "",
+  };
+}
+
 export function GeneratePage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -96,9 +107,10 @@ export function GeneratePage() {
     if (!provider && providers.length > 0) {
       const defaultProvider = providers[0].name;
       const saved = readRoutingProfiles()[defaultProvider];
+      const defaults = getProviderDefaults(providers, defaultProvider);
       setProvider(defaultProvider);
-      setModel(saved?.model || providers[0].models[0]?.id || "");
-      setBaseUrl(saved?.baseUrl || "");
+      setModel(saved?.model || defaults.model);
+      setBaseUrl(saved?.baseUrl || defaults.baseUrl);
       setApiKey(saved?.apiKey || "");
     }
   }, [provider, providers]);
@@ -109,9 +121,9 @@ export function GeneratePage() {
     }
     const profiles = readRoutingProfiles();
     const saved = profiles[provider];
-    const suggestedModel = providers.find((item) => item.name === provider)?.models[0]?.id ?? "";
-    setModel(saved?.model || suggestedModel);
-    setBaseUrl(saved?.baseUrl || "");
+    const defaults = getProviderDefaults(providers, provider);
+    setModel(saved?.model || defaults.model);
+    setBaseUrl(saved?.baseUrl || defaults.baseUrl);
     setApiKey(saved?.apiKey || "");
   }, [provider, providers]);
 
