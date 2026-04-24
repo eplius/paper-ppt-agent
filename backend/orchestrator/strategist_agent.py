@@ -6,6 +6,7 @@ from pathlib import Path
 
 from backend.config import CANVAS_FORMATS, DESIGN_STYLES, settings
 from backend.llm import LLMMessage, LLMProvider, LLMResponse
+from backend.orchestrator.manuscript import count_manuscript_pages
 
 PROMPT_PATH = Path(__file__).parent / "prompts" / "strategist.md"
 
@@ -63,7 +64,7 @@ async def create_design_spec(
     style_info = DESIGN_STYLES.get(style, DESIGN_STYLES["academic"])
 
     # Count pages in manuscript
-    page_count = manuscript.count("---") + 1
+    page_count = count_manuscript_pages(manuscript)
 
     user_parts = [
         f"## Manuscript\n\n{manuscript}",

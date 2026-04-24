@@ -87,7 +87,12 @@ async def analyze_paper(
         user_parts.append(f"\n## User Instruction\n\n{instruction}")
 
     if num_pages:
-        user_parts.append(f"\n## Target Slides: {num_pages}")
+        user_parts.append(
+            f"\n## Target Slides\n\n"
+            f"Produce exactly {num_pages} slides. Use exactly {num_pages - 1} slide delimiter "
+            "lines. A slide delimiter is a line containing only `---`. Do not use standalone "
+            "`---` anywhere else."
+        )
     else:
         user_parts.append(
             "\n## Target Slides: Auto-determine based on content "
@@ -108,7 +113,7 @@ async def analyze_paper(
 
     user_parts.append(
         "\n\nPlease analyze this paper and produce a slide manuscript. "
-        "Separate each slide with `---`. Start now."
+        "Separate each slide only with a standalone `---` line. Start now."
     )
 
     messages = [

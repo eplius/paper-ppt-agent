@@ -28,7 +28,7 @@ def test_pipeline_smoke(monkeypatch, workspace_tmp):
             )
 
     async def fake_analyze(*args, **kwargs) -> str:
-        return "# Slide One\nBody\n---\n# Slide Two\nBody"
+        return "# Slide One\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\n---\n# Slide Two\nBody"
 
     async def fake_design(*args, **kwargs) -> str:
         return "# Design spec"
@@ -96,6 +96,8 @@ def test_pipeline_smoke(monkeypatch, workspace_tmp):
 
     events = asyncio.run(collect_events())
 
+    generation_started = next(event for event in events if event.stage == "generation" and event.status == "started")
+    assert generation_started.data == {"total_slides": 2}
     assert events[-1].stage == "export"
     assert events[-1].status == "complete"
     assert events[-1].data is not None

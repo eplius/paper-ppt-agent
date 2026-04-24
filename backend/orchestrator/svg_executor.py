@@ -16,6 +16,7 @@ from pathlib import Path
 from backend.config import settings
 from backend.generator.svg_critic import CriticConfig, CriticReport, check_svg
 from backend.llm import LLMMessage, LLMProvider, LLMResponse
+from backend.orchestrator.manuscript import split_manuscript_pages
 from backend.usage.tracker import reset_usage_context, set_usage_context
 
 PROMPT_PATH = Path(__file__).parent / "prompts" / "executor.md"
@@ -61,7 +62,7 @@ async def generate_svg_pages(
         standards = standards_path.read_text(encoding="utf-8")
 
     # Parse pages from manuscript
-    pages = _split_manuscript(manuscript)
+    pages = split_manuscript_pages(manuscript)
     svg_output_dir = project_dir / "svg_output"
     svg_output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -185,12 +186,6 @@ async def generate_svg_pages(
             yield page_num, best_svg
         else:
             conversation.append(LLMMessage.assistant(response.content))
-
-
-def _split_manuscript(manuscript: str) -> list[str]:
-    """Split manuscript into individual page contents."""
-    pages = re.split(r"\n---\n", manuscript)
-    return [p.strip() for p in pages if p.strip()]
 
 
 def _make_page_name(num: int, content: str) -> str:

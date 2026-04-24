@@ -15,6 +15,7 @@ from backend.config import settings
 from backend.generator.svg_critic import CriticReport
 from backend.usage.tracker import reset_usage_context, set_usage_context
 
+from .manuscript import count_manuscript_pages
 from . import research_agent, strategist_agent, svg_executor
 
 
@@ -146,7 +147,7 @@ async def run_pipeline(
 
         # Stage 4: SVG executor
         set_usage_context(stage="generation")
-        total_pages = manuscript.count("---") + 1
+        total_pages = count_manuscript_pages(manuscript)
         yield ProgressEvent(
             "generation",
             "started",
@@ -377,7 +378,7 @@ async def run_refine_pipeline(
         _seed_svg_output_for_targeted_refine(project_dir, target_pages)
 
     # ── Stage 4: SVG generation (with feedback) ───────────────────────────
-    total_pages = manuscript.count("---") + 1
+    total_pages = count_manuscript_pages(manuscript)
     pages_to_generate = len(target_pages) if target_pages and not request.allow_structure_changes else total_pages
     generation_start = 0.30 if request.allow_structure_changes else 0.0
     generation_span = 0.30 if request.allow_structure_changes else 0.60
