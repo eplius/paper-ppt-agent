@@ -24,6 +24,9 @@ PROMPT_PATH = Path(__file__).parent / "prompts" / "executor.md"
 # How many repair attempts we're willing to spend per page. 1 = initial only.
 MAX_REPAIR_ATTEMPTS = 2
 
+# Initial response plus bounded same-page retries when no SVG can be extracted.
+MAX_SVG_EXTRACTION_ATTEMPTS = 3
+
 CriticCallback = Callable[[int, int, CriticReport], Awaitable[None]]
 
 
@@ -120,19 +123,27 @@ async def generate_svg_pages(
             reset_usage_context(snapshot)
 
         svg_content = _extract_svg(response.content)
-        if not svg_content:
-            # One structural-extraction retry (unchanged behaviour).
+        for extraction_attempt in range(2, MAX_SVG_EXTRACTION_ATTEMPTS + 1):
+            if svg_content:
+                break
             conversation.append(LLMMessage.assistant(response.content))
             conversation.append(
                 LLMMessage.user(
-                    "Please output ONLY the SVG code for this page, "
-                    "starting with <svg and ending with </svg>."
+                    _build_svg_extraction_retry_prompt(
+                        page_num=page_num,
+                        total_pages=len(pages),
+                        page_name=page_name,
+                        page_content=page_content,
+                        attempt=extraction_attempt,
+                    )
                 )
             )
-            snapshot = set_usage_context(stage="generation", page=page_num, attempt=1)
+            snapshot = set_usage_context(
+                stage="generation", page=page_num, attempt=extraction_attempt
+            )
             try:
                 response = await llm.chat(
-                    conversation, model, temperature=0.3, max_tokens=16384
+                    conversation, model, temperature=0.2, max_tokens=16384
                 )
             finally:
                 reset_usage_context(snapshot)
@@ -186,6 +197,10 @@ async def generate_svg_pages(
             yield page_num, best_svg
         else:
             conversation.append(LLMMessage.assistant(response.content))
+            raise RuntimeError(
+                f"Failed to generate parseable SVG for page {page_num}/{len(pages)} "
+                f"({page_name}) after {MAX_SVG_EXTRACTION_ATTEMPTS} attempts"
+            )
 
 
 def _make_page_name(num: int, content: str) -> str:
@@ -216,3 +231,29 @@ def _extract_svg(text: str) -> str | None:
         return match.group(1).strip()
 
     return None
+
+
+def _build_svg_extraction_retry_prompt(
+    *,
+    page_num: int,
+    total_pages: int,
+    page_name: str,
+    page_content: str,
+    attempt: int,
+) -> str:
+    """Build structured feedback when the model output is not parseable SVG."""
+    return (
+        "## Generation Validation Report\n\n"
+        f"The previous response for page {page_num}/{total_pages} ({page_name}) "
+        "did not contain a parseable complete SVG document.\n\n"
+        "## Failure\n"
+        "- No complete `<svg ...>...</svg>` block could be extracted.\n"
+        "- The current page has not been generated yet.\n\n"
+        "## Regeneration Instructions\n"
+        f"- Regenerate page {page_num}/{total_pages} only; do not move to another page.\n"
+        "- Preserve the page content below; do not invent a different slide.\n"
+        "- Return one complete SVG document, wrapped in a ```svg code block.\n"
+        "- The SVG must start with `<svg` and end with `</svg>`.\n\n"
+        f"## Page Content To Render\n\n{page_content}\n\n"
+        f"## Retry Attempt\n\n{attempt}"
+    )
