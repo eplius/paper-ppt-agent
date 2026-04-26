@@ -104,4 +104,4 @@ async def test_openai_provider_adds_deepseek_reasoning_kwargs(monkeypatch):
     assert response.content == "ok"
     assert captured["reasoning_effort"] == "max"
     assert captured["extra_body"] == {"thinking": {"type": "enabled"}}
-    assert captured["max_tokens"] == 8192
+    assert captured["max_tokens"] == 16384

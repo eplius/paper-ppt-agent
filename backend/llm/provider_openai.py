@@ -45,13 +45,6 @@ class OpenAIProvider(LLMProvider):
         )
 
     def _normalize_max_tokens(self, model: str, max_tokens: int | None) -> int | None:
-        if not max_tokens:
-            return max_tokens
-
-        # DeepSeek's OpenAI-compatible endpoint rejects values above 8192.
-        if self._is_deepseek_request(model):
-            return min(max_tokens, 8192)
-
         return max_tokens
 
     def _build_chat_kwargs(
