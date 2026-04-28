@@ -66,9 +66,6 @@ class OpenAIProvider(LLMProvider):
             kwargs["max_tokens"] = normalized_max_tokens
         if stream:
             kwargs["stream"] = True
-        if self._is_deepseek_request(model):
-            kwargs["reasoning_effort"] = "max"
-            kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
         return kwargs
 
     def _convert_messages(self, messages: list[LLMMessage]) -> list[dict]:

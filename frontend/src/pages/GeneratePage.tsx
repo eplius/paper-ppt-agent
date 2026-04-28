@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Layout } from "../components/layout/Layout";
 import { ModelSelector } from "../components/config/ModelSelector";
@@ -66,6 +66,8 @@ export function GeneratePage() {
     selectedSlide,
     connectionStatus,
     error,
+    currentRunConfig,
+    history,
     loadProviders,
     uploadFile,
     startGeneration,
@@ -90,6 +92,28 @@ export function GeneratePage() {
   const [instruction, setInstruction] = useState("");
   const freshRequested = searchParams.get("fresh") === "1";
   const targetJobId = searchParams.get("job") ?? undefined;
+  const targetHistoryEntry = targetJobId
+    ? history.find((entry) => entry.jobId === targetJobId)
+    : undefined;
+  const selectedRunConfig = useMemo(() => {
+    if (currentRunConfig) {
+      return currentRunConfig;
+    }
+    if (
+      targetHistoryEntry?.provider &&
+      targetHistoryEntry.model &&
+      targetHistoryEntry.options
+    ) {
+      return {
+        provider: targetHistoryEntry.provider,
+        model: targetHistoryEntry.model,
+        baseUrl: targetHistoryEntry.baseUrl ?? undefined,
+        options: targetHistoryEntry.options,
+        parentJobId: targetHistoryEntry.parentJobId ?? null,
+      };
+    }
+    return undefined;
+  }, [currentRunConfig, targetHistoryEntry]);
 
   useEffect(() => {
     void loadProviders();
@@ -121,16 +145,22 @@ export function GeneratePage() {
     if (!provider) {
       return;
     }
+    if (targetJobId && selectedRunConfig?.provider === provider) {
+      return;
+    }
     const profiles = readRoutingProfiles();
     const saved = profiles[provider];
     const defaults = getProviderDefaults(providers, provider);
     setModel(saved?.model || defaults.model);
     setBaseUrl(saved?.baseUrl || defaults.baseUrl);
     setApiKey(saved?.apiKey || "");
-  }, [provider, providers]);
+  }, [provider, providers, selectedRunConfig?.provider, targetJobId]);
 
   useEffect(() => {
     if (!provider) {
+      return;
+    }
+    if (targetJobId) {
       return;
     }
     const profiles = readRoutingProfiles();
@@ -140,7 +170,33 @@ export function GeneratePage() {
       apiKey,
     };
     writeRoutingProfiles(profiles);
-  }, [apiKey, baseUrl, model, provider]);
+  }, [apiKey, baseUrl, model, provider, targetJobId]);
+
+  useEffect(() => {
+    if (!targetJobId || !selectedRunConfig) {
+      return;
+    }
+
+    const options = selectedRunConfig.options;
+    const savedProfile = readRoutingProfiles()[selectedRunConfig.provider];
+    setProvider(selectedRunConfig.provider);
+    setModel(selectedRunConfig.model);
+    setBaseUrl(selectedRunConfig.baseUrl ?? "");
+    setApiKey(savedProfile?.apiKey ?? "");
+    setCanvasFormat(options.canvas_format || "ppt169");
+    setStyle(options.style || "academic");
+    setStyleOverrides(options.style_overrides ?? {});
+    if (options.language === "zh" || options.language === "en") {
+      setLanguageMode(options.language);
+      setCustomLanguage("");
+    } else {
+      setLanguageMode("custom");
+      setCustomLanguage(options.language || "");
+    }
+    setNumPages(options.num_pages ? String(options.num_pages) : "");
+    setDetailLevel(options.detail_level || "normal");
+    setTimeoutSeconds(options.timeout_seconds ? String(options.timeout_seconds) : "");
+  }, [selectedRunConfig, targetJobId]);
 
   useEffect(() => {
     setLanguageMode((current) => (current === "custom" ? current : locale === "zh" ? "zh" : "en"));
