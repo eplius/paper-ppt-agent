@@ -51,4 +51,5 @@ One complete SVG file per page with proper viewBox.
 7. Maintain consistent margins and spacing across all pages
 8. For a single visual line of copy, use exactly one `<text>` element. Do not place multiple sibling `<text>` elements at the same or nearly the same x/y position to fake inline styling.
 9. Use inline `<tspan>` only for style emphasis within one line. Do not simulate subscripts, footnotes, or formulas by adding a second `<text>` node that starts at the same x position.
-10. If a bullet line is long, wrap it onto a new line by changing `y` or using a new block, never by stacking multiple same-position text nodes.
+10. Never use HTML `<span>` inside SVG. Inline emphasis must be SVG `<tspan>`, otherwise browser preview can leak the span text outside the slide.
+11. If a bullet line is long, wrap it onto a new line by changing `y` or using a new block, never by stacking multiple same-position text nodes.

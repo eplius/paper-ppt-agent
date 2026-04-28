@@ -72,6 +72,7 @@ interface GenerationState {
   syncHistory: (jobId?: string) => void;
   removeHistory: (jobId: string) => Promise<void>;
   reset: () => void;
+  dismissError: () => void;
 }
 
 function appendSlide(slides: PreviewSlide[], slide: PreviewSlide): PreviewSlide[] {
@@ -117,7 +118,9 @@ function shouldReplaceSlides(current: PreviewSlide[], incoming: PreviewSlide[]):
 
 function upsertHistoryItem(history: GenerationHistoryItem[], item: GenerationHistoryItem): GenerationHistoryItem[] {
   return [item, ...history.filter((entry) => entry.jobId !== item.jobId)]
-    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+    .sort((left, right) =>
+      (right.createdAt ?? right.updatedAt).localeCompare(left.createdAt ?? left.updatedAt),
+    )
     .slice(0, HISTORY_LIMIT);
 }
 
@@ -134,13 +137,16 @@ function buildHistoryItemFromRun(history: GenerationHistoryItem[], run?: RunSnap
     existing?.slideCount ?? 0,
   );
 
+  const now = new Date().toISOString();
+
   return {
     jobId: run.jobId,
     fileName: run.uploadSession?.file_info.name ?? existing?.fileName ?? run.jobId,
     sourceType: run.uploadSession?.file_info.source_type ?? existing?.sourceType,
     status: run.result?.status ?? run.job?.status ?? existing?.status ?? "pending",
     slideCount,
-    updatedAt: new Date().toISOString(),
+    createdAt: existing?.createdAt ?? existing?.updatedAt ?? now,
+    updatedAt: now,
     projectDir:
       run.result?.project_dir ??
       existing?.projectDir ??
@@ -151,6 +157,11 @@ function buildHistoryItemFromRun(history: GenerationHistoryItem[], run?: RunSnap
     baseUrl: run.currentRunConfig?.baseUrl ?? existing?.baseUrl,
     options: run.currentRunConfig?.options ?? existing?.options,
     parentJobId: run.currentRunConfig?.parentJobId ?? existing?.parentJobId ?? null,
+    // Persist the live error so a failed run, when re-opened from the
+    // sidebar, can still show what went wrong. We prefer the most recent
+    // signal: live ``run.error`` first, fall back to whatever was stored
+    // previously in history. ``null`` clears the slot on success.
+    error: run.error ?? existing?.error ?? null,
   } satisfies GenerationHistoryItem;
 }
 
@@ -186,7 +197,12 @@ function buildStoredJob(historyItem: GenerationHistoryItem, result?: PreviewResp
     slides_completed: slideCount,
     total_slides: slideCount,
     output_path: historyItem.outputPath ?? result?.output_path ?? null,
-    error: historyItem.status === "error" ? "Job not found." : null,
+    // Use the persisted error message if we have one. Falling back to
+    // "Job not found." (the previous behaviour) hid the real failure
+    // reason when re-opening a failed run from the sidebar.
+    error:
+      historyItem.error ??
+      (historyItem.status === "error" ? "This run failed. The original error message is no longer available." : null),
   };
 }
 
@@ -297,6 +313,12 @@ export const useGeneration = create<GenerationState>()(
       async loadProviders() {
         const response = await fetchProviders();
         set({ providers: response.providers });
+      },
+      dismissError() {
+        // Clear the global error so the floating banner closes. Per-page
+        // local error state (loadError / refineError on ResultPage) is
+        // managed via local component state and is unaffected.
+        set({ error: undefined });
       },
       async uploadFile(file) {
         const uploadSession = await uploadPaper(file);

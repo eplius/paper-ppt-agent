@@ -24,11 +24,40 @@ _CJK_CHAR_WIDTH_FACTOR = 0.95
 
 _CJK_RE = re.compile(r"[\u4e00-\u9fff\u3400-\u4dbf\u3000-\u303f\uff00-\uffef]")
 _HEX_COLOR_RE = re.compile(r"#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})\b")
+_TEXT_OPEN_RE = re.compile(r"<text\b[^>]*>", re.IGNORECASE)
+_TEXT_CLOSE_RE = re.compile(r"</text\s*>", re.IGNORECASE)
 
 # Elements explicitly forbidden by executor.md — mirrored here so the
 # critic fails fast instead of relying on LLM self-discipline.
 _FORBIDDEN_TAGS = {"mask", "style", "clipPath", "filter", "foreignObject"}
 # `use` is allowed for icon references; `image` allowed for raster.
+
+
+def _count_nested_text(svg_content: str) -> int:
+    """Return the number of inner <text> opens found inside another open <text>."""
+    n = len(svg_content)
+    i = 0
+    depth = 0
+    nested = 0
+    while i < n:
+        m_open = _TEXT_OPEN_RE.search(svg_content, i)
+        m_close = _TEXT_CLOSE_RE.search(svg_content, i)
+        next_open = m_open.start() if m_open else n + 1
+        next_close = m_close.start() if m_close else n + 1
+        if next_open == n + 1 and next_close == n + 1:
+            break
+        if next_open < next_close and m_open is not None:
+            if depth >= 1:
+                nested += 1
+            depth += 1
+            i = m_open.end()
+        elif m_close is not None:
+            if depth > 0:
+                depth -= 1
+            i = m_close.end()
+        else:
+            break
+    return nested
 
 
 @dataclass
@@ -272,6 +301,18 @@ def check_svg(svg_content: str, config: CriticConfig | None = None) -> CriticRep
     cfg = config or CriticConfig()
     violations: list[Violation] = []
 
+    nested_count = _count_nested_text(svg_content)
+    if nested_count > 0:
+        violations.append(Violation(
+            rule="nested_text",
+            severity="error",
+            detail=(
+                f"Found {nested_count} `<text>` element(s) nested inside another "
+                f"`<text>`. SVG forbids this and browsers/PPT export can scramble "
+                f"the result. Use `<tspan>` for inline emphasis instead."
+            ),
+        ))
+
     # 1. Parse SVG (lenient).
     try:
         root = ET.fromstring(svg_content)
@@ -286,6 +327,18 @@ def check_svg(svg_content: str, config: CriticConfig | None = None) -> CriticRep
     # 2. Forbidden elements.
     for el in _iter_all(root):
         tag = _strip_ns(el.tag)
+        if tag == "span":
+            violations.append(
+                Violation(
+                    rule="html_span_in_svg_text",
+                    severity="error",
+                    detail=(
+                        "`<span>` is an HTML element and is invalid inside SVG text. "
+                        "Use SVG `<tspan>` for inline styling."
+                    ),
+                    element=_element_identifier(el),
+                )
+            )
         if tag in _FORBIDDEN_TAGS:
             violations.append(
                 Violation(

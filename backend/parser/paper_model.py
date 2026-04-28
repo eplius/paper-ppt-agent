@@ -20,6 +20,29 @@ class PaperFigure:
     extraction_method: str = "unknown"
     quality_score: float = 0.0
     review_flags: list[str] = field(default_factory=list)
+    # Natural pixel dimensions of the saved file. Populated by the parser for
+    # review/export metadata without requiring the model to guess image files.
+    natural_width: int = 0
+    natural_height: int = 0
+
+    @property
+    def aspect_ratio(self) -> float:
+        """width / height, or 0 when unknown."""
+        if self.natural_width > 0 and self.natural_height > 0:
+            return self.natural_width / self.natural_height
+        return 0.0
+
+    @property
+    def fig_id(self) -> str:
+        """Stable identifier used in `[[FIG:id]]` tokens.
+
+        Derived from the file stem so it survives across pipeline stages
+        without needing extra plumbing. The token is the contract between
+        ``research_agent`` (which writes them into the manuscript) and
+        ``svg_executor`` (which resolves them to real image hrefs before
+        the LLM sees the page).
+        """
+        return self.path.stem
 
 
 @dataclass
@@ -92,8 +115,21 @@ class ParsedPaper:
             for fig in section.figures:
                 if not self._should_include_figure(fig):
                     continue
-                caption = fig.caption or "Figure"
-                parts.append(f"\n![{caption}]({fig.path})\n")
+                caption = (fig.caption or "Figure").replace("\n", " ").strip()
+                size_hint = ""
+                if fig.natural_width > 0 and fig.natural_height > 0:
+                    size_hint = (
+                        f" (natural {fig.natural_width}×{fig.natural_height}px,"
+                        f" ratio {fig.aspect_ratio:.3f})"
+                    )
+                # Emit a stable `[[FIG:id]]` token instead of a markdown image.
+                # The research agent must reproduce this token verbatim when
+                # it references this figure on a slide. The executor later
+                # resolves the token to a concrete `<image href=...>` so the
+                # model never has to guess between figures.
+                parts.append(
+                    f"\n[[FIG:{fig.fig_id}]] — {caption}{size_hint}\n"
+                )
 
             for table in section.tables:
                 if table.caption:

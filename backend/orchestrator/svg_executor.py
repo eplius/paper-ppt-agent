@@ -19,6 +19,9 @@ from backend.llm import LLMMessage, LLMProvider, LLMResponse
 from backend.orchestrator.manuscript import split_manuscript_pages
 from backend.usage.tracker import reset_usage_context, set_usage_context
 
+# `[[FIG:fig_007_p9_page]]` style tokens emitted by the research agent.
+FIG_TOKEN_RE = re.compile(r"\[\[FIG:([A-Za-z0-9_\-]+)\]\]")
+
 PROMPT_PATH = Path(__file__).parent / "prompts" / "executor.md"
 
 # How many repair attempts we're willing to spend per page. 1 = initial only.
@@ -28,6 +31,68 @@ MAX_REPAIR_ATTEMPTS = 2
 MAX_SVG_EXTRACTION_ATTEMPTS = 3
 
 CriticCallback = Callable[[int, int, CriticReport], Awaitable[None]]
+
+
+def _resolve_fig_tokens(
+    page_content: str,
+    figure_inventory: list[dict] | None,
+) -> tuple[str, list[dict]]:
+    """Replace `[[FIG:id]]` tokens with explicit real-figure references."""
+    if not figure_inventory:
+        return page_content, []
+
+    by_id: dict[str, dict] = {}
+    for fig in figure_inventory:
+        path = str(fig.get("path") or "")
+        if path:
+            by_id[Path(path).stem] = fig
+
+    used: list[dict] = []
+    seen: set[str] = set()
+
+    def _replace(match: re.Match) -> str:
+        fig_id = match.group(1)
+        fig = by_id.get(fig_id)
+        if fig is None:
+            return f"[[MISSING_FIG:{fig_id}]]"
+        if fig_id not in seen:
+            seen.add(fig_id)
+            used.append(fig)
+        path = fig.get("path") or ""
+        cap = (fig.get("caption") or "").strip().replace("\n", " ")
+        if len(cap) > 160:
+            cap = cap[:157] + "..."
+        return f"[PAPER FIGURE — id={fig_id}, href=\"{path}\", caption: {cap}]"
+
+    return FIG_TOKEN_RE.sub(_replace, page_content), used
+
+
+def _figure_guidance_block(used: list[dict]) -> str:
+    """Constrain real paper-figure hrefs without limiting native SVG visuals."""
+    if not used:
+        return (
+            "## Paper Figure Guidance\n"
+            "- This slide does not contain an explicit paper-figure token. "
+            "Do not invent a paper-figure `<image href>` path. This restriction "
+            "applies only to extracted paper figures; native SVG diagrams, charts, "
+            "and visual treatments remain available."
+        )
+
+    lines = ["## Paper Figure Guidance"]
+    for fig in used:
+        path = fig.get("path") or ""
+        cap = (fig.get("caption") or "").strip().replace("\n", " ")
+        if len(cap) > 160:
+            cap = cap[:157] + "..."
+        lines.append(
+            f"- Allowed paper figure href: \"{path}\"; caption: {cap}"
+        )
+    lines.append(
+        "Use only the listed hrefs for extracted paper figures. Never substitute "
+        "a different paper-figure href, reuse one from another slide, or invent "
+        "a paper-figure path. This does not restrict native SVG visuals."
+    )
+    return "\n".join(lines)
 
 
 async def generate_svg_pages(
@@ -44,32 +109,20 @@ async def generate_svg_pages(
     target_pages: set[int] | None = None,
     critic_config: CriticConfig | None = None,
     on_critic: CriticCallback | None = None,
+    figure_inventory: list[dict] | None = None,
 ) -> AsyncIterator[tuple[int, str]]:
-    """Generate SVG code for each slide page sequentially.
-
-    Every generated page passes through the static critic. When violations
-    are detected, we send the critic's structured repair prompt back to
-    the model (up to ``MAX_REPAIR_ATTEMPTS`` times). If the page still
-    fails, the best available SVG is yielded anyway so the user can see
-    what happened and intervene via the refine loop.
-
-    Yields:
-        Tuples of (page_number, svg_content).
-    """
+    """Generate SVG code for each slide page sequentially."""
     system_prompt = PROMPT_PATH.read_text(encoding="utf-8")
 
-    # Load shared standards
     standards_path = settings.references_dir / "shared-standards.md"
     standards = ""
     if standards_path.exists():
         standards = standards_path.read_text(encoding="utf-8")
 
-    # Parse pages from manuscript
     pages = split_manuscript_pages(manuscript)
     svg_output_dir = project_dir / "svg_output"
     svg_output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Build context that accumulates across pages
     extra_block = f"\n\n{extra_instruction}" if extra_instruction else ""
     conversation: list[LLMMessage] = [
         LLMMessage.system(system_prompt),
@@ -98,22 +151,27 @@ async def generate_svg_pages(
         if target_pages is not None and page_num not in target_pages:
             continue
         page_name = _make_page_name(page_num, page_content)
+        rewritten_content, used_figures = _resolve_fig_tokens(
+            page_content,
+            figure_inventory,
+        )
+        figure_guidance = _figure_guidance_block(used_figures)
 
         conversation.append(
             LLMMessage.user(
                 f"## Page {page_num}/{len(pages)}: {page_name}\n\n"
-                f"{page_content}\n\n"
+                f"{rewritten_content}\n\n"
                 f"## Runtime Reminders\n"
                 f"- Style preset: {style}\n"
                 f"- Language: {language}\n"
                 f"- Detail level: {detail_level}\n"
                 f"- Keep all visible text in the requested language.\n\n"
+                f"{figure_guidance}\n\n"
                 f"Generate the complete SVG code for this page. "
                 f"Output ONLY the SVG code, wrapped in ```svg code block."
             )
         )
 
-        # Attempt 1: initial generation
         snapshot = set_usage_context(stage="generation", page=page_num, attempt=1)
         try:
             response: LLMResponse = await llm.chat(
@@ -149,7 +207,6 @@ async def generate_svg_pages(
                 reset_usage_context(snapshot)
             svg_content = _extract_svg(response.content)
 
-        # Repair loop driven by the static critic.
         if svg_content:
             conversation.append(LLMMessage.assistant(f"```svg\n{svg_content}\n```"))
 
@@ -162,7 +219,6 @@ async def generate_svg_pages(
                     best_svg = svg_content
                     break
 
-                # Ask the model to repair, feeding back structured violations.
                 conversation.append(
                     LLMMessage.user(
                         report.to_prompt_block()
@@ -205,11 +261,9 @@ async def generate_svg_pages(
 
 def _make_page_name(num: int, content: str) -> str:
     """Generate a clean filename from page content."""
-    # Try to extract heading
     match = re.match(r"^##?\s+(.+)$", content, re.MULTILINE)
     if match:
         name = match.group(1).strip()
-        # Sanitize for filename
         name = re.sub(r"[^\w\s-]", "", name)
         name = re.sub(r"\s+", "_", name)
         return name[:40].lower()
@@ -218,14 +272,12 @@ def _make_page_name(num: int, content: str) -> str:
 
 def _extract_svg(text: str) -> str | None:
     """Extract SVG content from LLM response."""
-    # Try code block first
     match = re.search(r"```(?:svg|xml)?\s*\n(.*?)\n```", text, re.DOTALL)
     if match:
         svg = match.group(1).strip()
         if svg.startswith("<svg"):
             return svg
 
-    # Try raw SVG
     match = re.search(r"(<svg[^>]*>.*?</svg>)", text, re.DOTALL)
     if match:
         return match.group(1).strip()

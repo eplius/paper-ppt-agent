@@ -9,6 +9,7 @@ import { VersionHistory } from "../components/result/VersionHistory";
 import { useGeneration } from "../hooks/useGeneration";
 import { useLocale } from "../i18n";
 import { fetchJobStatus, fetchPreview, fetchProjectPreview, getDownloadUrl, getDownloadUrlForOutput, reexportPresentation } from "../lib/api";
+import { translateStageStatus } from "../lib/i18nStatus";
 import type { GenerateRequestPayload, GenerationHistoryItem, JobStatus, PreviewResponse, PreviewSlide } from "../lib/types";
 
 // Routing profile stored by GeneratePage so we can re-use model config here.
@@ -48,7 +49,7 @@ export function ResultPage() {
   const [params] = useSearchParams();
   const navigate = useNavigate();
   const jobId = params.get("job");
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const {
     reset,
     history,
@@ -61,6 +62,11 @@ export function ResultPage() {
     logs,
     connectionStatus,
   } = useGeneration();
+  // Direct-bind the global error-store setters so we can mirror local
+  // page errors (load / refine / reexport / failed-job) into the global
+  // error slot — that's what drives the floating ErrorBanner.
+  const setGlobalError = (msg: string | undefined) =>
+    useGeneration.setState({ error: msg });
 
   const historyEntry = history.find((entry) => entry.jobId === jobId);
   const [result, setResult] = useState<PreviewResponse | null>(null);
@@ -185,6 +191,34 @@ export function ResultPage() {
   useEffect(() => {
     setSelectedSlide((current) => pickSelectedSlide(slides, current));
   }, [slides]);
+
+  // Mirror any active page-level error into the global ``error`` store so
+  // the floating ErrorBanner becomes visible. Priority order:
+  //   1. ``loadError``     — the result preview / job lookup failed.
+  //   2. ``reexportError`` — a re-export attempt failed.
+  //   3. ``refineError``   — a refine submission failed.
+  //   4. ``job.error``     — the failed run itself carries an error.
+  // Cleared on unmount so navigating away from the page doesn't leave a
+  // stale banner behind.
+  useEffect(() => {
+    const failedJobError =
+      job?.status === "error" ? job.error ?? historyEntry?.error ?? null : null;
+    const message = loadError || reexportError || refineError || failedJobError || null;
+    if (message) {
+      setGlobalError(message);
+    } else {
+      setGlobalError(undefined);
+    }
+    return () => {
+      // Only clear if we were the ones who set it — comparing the current
+      // store value to the message we set keeps unrelated errors (e.g.
+      // raised by another page that just navigated in) intact.
+      const current = useGeneration.getState().error;
+      if (current && current === message) {
+        setGlobalError(undefined);
+      }
+    };
+  }, [loadError, reexportError, refineError, job?.status, job?.error, historyEntry?.error]);
 
   // Auto-sync multi-select when slide count changes (keeps valid pages only)
   useEffect(() => {
@@ -326,7 +360,7 @@ export function ResultPage() {
       <section className="result-summary">
         <div className="metric-stripe">
           <span>{t("result.status")}</span>
-          <strong>{formatStatusLabel(result?.status ?? job?.status ?? historyEntry?.status, t("common.unknown"), t)}</strong>
+          <strong>{formatStatusLabel(result?.status ?? job?.status ?? historyEntry?.status, locale, t("common.unknown"))}</strong>
         </div>
         <div className="metric-stripe">
           <span>{t("result.slides")}</span>
@@ -500,19 +534,8 @@ function pickSelectedSlide(slides: PreviewSlide[], selectedSlide?: PreviewSlide)
 
 function formatStatusLabel(
   status: string | null | undefined,
+  locale: "en" | "zh",
   unknownLabel: string,
-  t: (key: string) => string,
 ) {
-  const normalized = status ?? "";
-  if (normalized === "complete") return t("progress.ready");
-  if (normalized === "error") return "失败";
-  if (normalized === "cancelled") return "已取消";
-  if (normalized === "pending") return t("common.pending");
-  if (normalized === "generation") return "生成中";
-  if (normalized === "research") return "分析中";
-  if (normalized === "strategy") return "规划中";
-  if (normalized === "postprocess") return "后处理中";
-  if (normalized === "export") return "导出中";
-  if (normalized === "parsing") return "解析中";
-  return normalized || unknownLabel;
+  return status ? translateStageStatus(status, locale, "history") : unknownLabel;
 }

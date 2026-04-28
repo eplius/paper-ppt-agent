@@ -103,6 +103,7 @@ export interface GenerationHistoryItem {
   sourceType?: SourceType;
   status: string;
   slideCount: number;
+  createdAt?: string;
   updatedAt: string;
   projectDir?: string | null;
   outputPath?: string | null;
@@ -111,6 +112,11 @@ export interface GenerationHistoryItem {
   baseUrl?: string;
   options?: GenerationOptions;
   parentJobId?: string | null;
+  // Last error message for this run, persisted so the result page can
+  // surface it later (otherwise navigating into a failed history entry
+  // would only ever show "Job not found." even though we know the real
+  // failure reason from the original WebSocket / pipeline event).
+  error?: string | null;
 }
 
 export interface JobEvent {

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from backend.config import CANVAS_FORMATS, DESIGN_STYLES, settings
@@ -9,6 +10,27 @@ from backend.llm import LLMMessage, LLMProvider, LLMResponse
 from backend.orchestrator.manuscript import count_manuscript_pages
 
 PROMPT_PATH = Path(__file__).parent / "prompts" / "strategist.md"
+DESIGN_SPEC_MAX_TOKENS = 24576
+MAX_DESIGN_SPEC_ATTEMPTS = 2
+
+
+def _design_spec_validation_error(content: str) -> str | None:
+    text = content.strip()
+    if len(text) < 1200:
+        return f"design_spec.md is too short ({len(text)} characters)"
+
+    required = {
+        "I": "Project Information",
+        "II": "Canvas Specification",
+        "III": "Visual Theme",
+        "IX": "Content Outline",
+        "XI": "Technical Constraints",
+    }
+    for roman, title in required.items():
+        pattern = rf"(?im)^#+\s*{roman}\.\s+.*{re.escape(title)}"
+        if not re.search(pattern, text):
+            return f"design_spec.md is missing section {roman}. {title}"
+    return None
 
 
 def _language_constraint(language: str) -> str:
@@ -80,7 +102,7 @@ async def create_design_spec(
         f"- Style: {style_info['name']}",
         f"- Primary Color: {style_info['primary']}",
         f"- Accent Color: {style_info['accent']}",
-        f"- Icon Library: tabler-outline (clean, professional)",
+        "- Compact symbols are optional; use only when they carry clear semantic value.",
         f"- Typography: Sans-serif (Inter/Arial for body, bold for headings)",
         "\n## Hard Constraints",
         "- Respect the selected design style. Do not silently fall back to a default academic theme when another style is selected.",
@@ -125,12 +147,33 @@ async def create_design_spec(
         "All 11 sections (I through XI) must be present."
     )
 
-    messages = [
+    base_messages = [
         LLMMessage.system(system_prompt),
         LLMMessage.user("\n".join(user_parts)),
     ]
 
-    response: LLMResponse = await llm.chat(
-        messages, model, temperature=0.4, max_tokens=8192
-    )
-    return response.content
+    last_error = ""
+    for attempt in range(1, MAX_DESIGN_SPEC_ATTEMPTS + 1):
+        messages = list(base_messages)
+        if last_error:
+            messages.append(
+                LLMMessage.user(
+                    "The previous design_spec.md response was invalid: "
+                    f"{last_error}. Regenerate the complete design_spec.md now. "
+                    "Do not return an empty response. Include all required sections I through XI."
+                )
+            )
+
+        response: LLMResponse = await llm.chat(
+            messages,
+            model,
+            temperature=0.25 if attempt > 1 else 0.4,
+            max_tokens=DESIGN_SPEC_MAX_TOKENS,
+        )
+        content = response.content.strip()
+        error = _design_spec_validation_error(content)
+        if error is None:
+            return content
+        last_error = error
+
+    raise RuntimeError(f"Invalid design specification from strategist: {last_error}")

@@ -46,6 +46,7 @@ export function UploadZone({ onFileSelect }: UploadZoneProps) {
         onChange={(e) => {
           const file = e.target.files?.[0];
           if (file) onFileSelect(file);
+          e.currentTarget.value = "";
         }}
       />
     </section>

@@ -421,8 +421,67 @@ class PDFParser(PaperParser):
                         extraction_method="embedded_image",
                         quality_score=score,
                         review_flags=flags,
+                        natural_width=int(pix.width),
+                        natural_height=int(pix.height),
                     )
                 )
+            except Exception:
+                continue
+
+        # ── pass A.5: render every detected table as its own figure ─────────
+        # ``page.find_tables()`` already gave us a tight bbox for each table.
+        # Without this pass, three-line scientific tables (which have no raster
+        # image and very few drawing rects) fall all the way through to the
+        # whole-page fallback, producing the "screenshot of the entire page"
+        # bug. Rendering ``tab.bbox`` directly gives us exactly the table area.
+        for tab in self._iter_page_tables(page):
+            try:
+                tab_bbox = fitz.Rect(tab.bbox)
+            except Exception:
+                continue
+            if tab_bbox.width < MIN_RENDERED_FIGURE_SIDE or tab_bbox.height < MIN_RENDERED_FIGURE_SIDE:
+                continue
+            # Pad slightly so axis labels / borders are not clipped.
+            clip = fitz.Rect(
+                max(page_rect.x0, tab_bbox.x0 - 6),
+                max(page_rect.y0, tab_bbox.y0 - 6),
+                min(page_rect.x1, tab_bbox.x1 + 6),
+                min(page_rect.y1, tab_bbox.y1 + 6),
+            )
+            if self._is_region_already_covered(clip, raster_rects):
+                continue
+            try:
+                mat = fitz.Matrix(REGION_DPI / 72, REGION_DPI / 72)
+                pix = page.get_pixmap(matrix=mat, clip=clip, alpha=False)
+                img_bytes = pix.tobytes("png")
+                h = hashlib.md5(img_bytes).hexdigest()[:12]
+                if h in seen_hashes:
+                    continue
+                seen_hashes.add(h)
+
+                counter[0] += 1
+                img_path = images_dir / f"fig_{counter[0]:03d}_p{page_idx + 1}_table.png"
+                img_path.write_bytes(img_bytes)
+
+                # Look for a "Table N" caption near this region.
+                caption = self._nearest_caption(clip, caption_map)
+                figures.append(
+                    PaperFigure(
+                        path=img_path,
+                        caption=caption,
+                        available=True,
+                        page_number=page_idx + 1,
+                        bbox=self._rect_tuple(clip),
+                        extraction_method="table_region",
+                        quality_score=0.92,
+                        review_flags=[],
+                        natural_width=int(pix.width),
+                        natural_height=int(pix.height),
+                    )
+                )
+                # Mark this region as covered so caption-region pass B does
+                # not try to render the same table area again.
+                raster_rects.append(clip)
             except Exception:
                 continue
 
@@ -471,13 +530,26 @@ class PDFParser(PaperParser):
                         extraction_method="caption_region",
                         quality_score=score,
                         review_flags=flags,
+                        natural_width=int(pix.width),
+                        natural_height=int(pix.height),
                     )
                 )
             except Exception:
                 continue
 
         # ── pass C: whole-page fallback only when all candidates look weak ─
-        if caption_map and not any(fig.quality_score >= 0.45 for fig in figures):
+        # Tightened: a single decent table-region or caption-region figure is
+        # enough to suppress the whole-page screenshot. Prior threshold was
+        # 0.45 which let three-line tables (which we now extract directly via
+        # pass A.5) avoid this fallback entirely; we keep the same threshold
+        # but also short-circuit when *any* figure was produced via the more
+        # reliable table_region / caption_region paths.
+        reliable_methods = {"embedded_image", "table_region", "caption_region"}
+        has_reliable = any(
+            fig.extraction_method in reliable_methods and fig.quality_score >= 0.45
+            for fig in figures
+        )
+        if caption_map and not has_reliable and not any(fig.quality_score >= 0.45 for fig in figures):
             try:
                 mat = fitz.Matrix(RENDER_DPI / 72, RENDER_DPI / 72)
                 pix = page.get_pixmap(matrix=mat, alpha=False)
@@ -506,6 +578,8 @@ class PDFParser(PaperParser):
                             extraction_method="page_fallback",
                             quality_score=score,
                             review_flags=flags + ["page_level_fallback"],
+                            natural_width=int(pix.width),
+                            natural_height=int(pix.height),
                         )
                     )
             except Exception:
@@ -729,6 +803,9 @@ class PDFParser(PaperParser):
                     "extraction_method": figure.extraction_method,
                     "quality_score": figure.quality_score,
                     "review_flags": figure.review_flags,
+                    "natural_width": figure.natural_width,
+                    "natural_height": figure.natural_height,
+                    "aspect_ratio": round(figure.aspect_ratio, 4) if figure.aspect_ratio else None,
                 }
             )
 
@@ -760,6 +837,24 @@ class PDFParser(PaperParser):
         except Exception:
             pass
         return tables
+
+    def _iter_page_tables(self, page: fitz.Page):
+        """Yield ``page.find_tables()`` entries with a usable ``.bbox`` attribute.
+
+        Wrapped so callers don't have to reproduce the ``hasattr`` /
+        try/except dance and we can swap the backing implementation if the
+        layout-aware extractor is available.
+        """
+        if not hasattr(page, "find_tables"):
+            return
+        try:
+            tab_finder = page.find_tables()
+            for tab in tab_finder.tables:
+                if getattr(tab, "bbox", None) is None:
+                    continue
+                yield tab
+        except Exception:
+            return
 
     @staticmethod
     def _rows_to_markdown(rows: list[list[str | None]]) -> str:

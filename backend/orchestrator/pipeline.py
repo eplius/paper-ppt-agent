@@ -96,8 +96,12 @@ async def run_pipeline(
         paper = await parser.parse(request.file_path, output_dir)
 
         parse_info: dict = {}
-        if isinstance(parser, PDFParser):
-            parse_info = dict(PDFParser.last_parse_info or {})
+        if request.source_type == "pdf":
+            parse_info = dict(
+                getattr(parser, "last_parse_info", None)
+                or getattr(type(parser), "last_parse_info", None)
+                or {}
+            )
 
         complete_msg = f"Parsed: {paper.title}"
         if parse_info.get("fallback"):
@@ -130,6 +134,7 @@ async def run_pipeline(
         # Stage 3: Strategist agent
         set_usage_context(stage="strategy")
         yield ProgressEvent("strategy", "started", "Creating design specification...")
+        figure_inventory = _build_figure_inventory(paper, project_dir)
         design_spec = await strategist_agent.create_design_spec(
             manuscript,
             llm,
@@ -177,6 +182,7 @@ async def run_pipeline(
             detail_level=request.detail_level,
             extra_instruction=_build_style_overrides_block(request.style_overrides),
             on_critic=_on_critic,
+            figure_inventory=figure_inventory,
         ):
             generated += 1
             progress = 0.40 + (generated / total_pages) * 0.35
@@ -247,6 +253,66 @@ async def run_pipeline(
         reset_usage_context(usage_snapshot)
 
 
+def _load_figure_inventory(project_dir: Path) -> list[dict]:
+    """Read figure_review.json from a refine workspace.
+
+    The refine pipeline runs without re-parsing the PDF, so we cannot call
+    ``_build_figure_inventory(paper, ...)`` here. ``figure_review.json``
+    is written once during the original parse and contains everything the
+    executor needs to resolve `[[FIG:id]]` tokens to real hrefs.
+    """
+    import json
+    candidate = project_dir / "sources" / "images" / "figure_review.json"
+    if not candidate.exists():
+        return []
+    try:
+        records = json.loads(candidate.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    inventory: list[dict] = []
+    for rec in records:
+        try:
+            abs_path = Path(rec.get("path") or "").resolve()
+            try:
+                rel = abs_path.relative_to(project_dir.resolve())
+                rel_str = f"../{rel.as_posix()}" if rel.parts and rel.parts[0] == "sources" else rel.as_posix()
+            except ValueError:
+                rel_str = str(abs_path)
+        except (OSError, ValueError):
+            rel_str = str(rec.get("path") or "")
+        inventory.append({
+            "path": rel_str,
+            "natural_width": int(rec.get("natural_width") or 0),
+            "natural_height": int(rec.get("natural_height") or 0),
+            "aspect_ratio": float(rec.get("aspect_ratio") or 0.0),
+            "caption": rec.get("caption") or "",
+            "page_number": rec.get("page_number"),
+        })
+    return inventory
+
+
+def _build_figure_inventory(paper, project_dir: Path) -> list[dict]:
+    """Collect available figures with natural sizes for the strategist prompt."""
+    inventory: list[dict] = []
+    for fig in paper.all_figures():
+        if not getattr(fig, "available", False):
+            continue
+        try:
+            rel = Path(fig.path).resolve().relative_to(project_dir.resolve())
+            rel_str = f"../{rel.as_posix()}" if rel.parts and rel.parts[0] == "sources" else rel.as_posix()
+        except (ValueError, OSError):
+            rel_str = str(fig.path)
+        inventory.append({
+            "path": rel_str,
+            "natural_width": int(getattr(fig, "natural_width", 0) or 0),
+            "natural_height": int(getattr(fig, "natural_height", 0) or 0),
+            "aspect_ratio": float(getattr(fig, "aspect_ratio", 0.0) or 0.0),
+            "caption": getattr(fig, "caption", "") or "",
+            "page_number": getattr(fig, "page_number", None),
+        })
+    return inventory
+
+
 def _embed_svg_preview(svg_content: str, project_dir: Path) -> str:
     """Embed image hrefs as base64 data URIs so browsers can render them.
 
@@ -257,8 +323,8 @@ def _embed_svg_preview(svg_content: str, project_dir: Path) -> str:
 
     try:
         return prepare_svg_content_for_render(svg_content, project_dir / "svg_output")
-    except Exception:
-        return svg_content
+    except Exception as exc:
+        raise RuntimeError(f"SVG preview preparation failed: {exc}") from exc
 
 
 # ── Refine pipeline ───────────────────────────────────────────────────────────
@@ -399,6 +465,8 @@ async def run_refine_pipeline(
             "report": report.to_dict(),
         })
 
+    refine_inventory = _load_figure_inventory(project_dir)
+
     async for page_num, svg_content in svg_executor.generate_svg_pages(
         design_spec,
         manuscript,
@@ -411,6 +479,7 @@ async def run_refine_pipeline(
         extra_instruction=feedback_block,
         target_pages=set(target_pages) if target_pages and not request.allow_structure_changes else None,
         on_critic=_refine_on_critic,
+        figure_inventory=refine_inventory,
     ):
         generated += 1
         progress = generation_start + (generated / max(pages_to_generate, 1)) * generation_span

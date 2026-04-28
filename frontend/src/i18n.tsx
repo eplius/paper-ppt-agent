@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, type PropsWithChildren } from "react";
 
-type Locale = "en" | "zh";
+export type Locale = "en" | "zh";
 
 const STORAGE_KEY = "paper-ppt-agent-locale";
 
@@ -147,6 +147,7 @@ const translations: Record<Locale, Dictionary> = {
     "logs.job": "Job",
     "logs.page": "Page",
     "logs.attempt": "Attempt",
+    "logs.noData": "No data yet.",
     "result.selectPages": "Select pages to regenerate",
     "result.selectAll": "All pages",
     "result.allowStructure": "Allow structural changes",
@@ -173,6 +174,12 @@ const translations: Record<Locale, Dictionary> = {
     "versions.close": "Close",
     "versions.confirmDelete": "Delete this archived version? This cannot be undone.",
     "sidebar.confirmDelete": "Delete this recent run?",
+    "error.title": "Something went wrong",
+    "error.copy": "Copy details",
+    "error.copied": "Copied",
+    "error.dismiss": "Dismiss",
+    "error.expand": "Show full message",
+    "error.collapse": "Collapse",
   },
   zh: {
     "header.kicker": "论文生成 PPT",
@@ -312,6 +319,7 @@ const translations: Record<Locale, Dictionary> = {
     "logs.job": "任务",
     "logs.page": "页码",
     "logs.attempt": "尝试",
+    "logs.noData": "暂无数据。",
     "result.selectPages": "选择要重新生成的页面",
     "result.selectAll": "全部页面",
     "result.allowStructure": "允许结构调整",
@@ -338,6 +346,12 @@ const translations: Record<Locale, Dictionary> = {
     "versions.close": "关闭",
     "versions.confirmDelete": "删除此归档版本？此操作不可撤销。",
     "sidebar.confirmDelete": "删除这条最近记录？",
+    "error.title": "出错了",
+    "error.copy": "复制详情",
+    "error.copied": "已复制",
+    "error.dismiss": "关闭",
+    "error.expand": "展开完整信息",
+    "error.collapse": "收起",
   },
 };
 

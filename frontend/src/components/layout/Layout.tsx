@@ -1,4 +1,5 @@
 import type { PropsWithChildren } from "react";
+import { ErrorBanner } from "./ErrorBanner";
 import { Header } from "./Header";
 import { Sidebar } from "./Sidebar";
 
@@ -11,6 +12,7 @@ export function Layout({ children, showSidebar = true, contentClassName = "" }: 
   return (
     <div className="app-shell">
       <Header />
+      <ErrorBanner />
       <div className={`app-body ${showSidebar ? "app-body-with-sidebar" : "app-body-no-sidebar"}`}>
         {showSidebar ? <Sidebar /> : null}
         <main className={`app-content ${showSidebar ? "app-content-with-sidebar" : "app-content-full"} ${contentClassName}`.trim()}>

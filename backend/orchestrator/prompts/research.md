@@ -17,8 +17,19 @@ Produce a Markdown document where each slide is separated by `---`. Each slide s
 
 1. **Slide title** as a `## Heading`
 2. **2-5 bullet points** summarizing key content for that slide
-3. **Image references** if applicable: `![caption](path)`
+3. **Image references** using the figure-token contract below when a real extracted paper figure is relevant
 4. **Key data/numbers** highlighted in bold
+
+## Figure Reference Contract
+
+The parsed paper content lists available paper figures with stable tokens of the form `[[FIG:fig_id]]` (for example `[[FIG:fig_007_p9_page]]`). When a slide should display one of those real paper figures:
+
+- Quote the token verbatim — do not invent IDs, do not change digits, do not localise the prefix.
+- Place the token on its own line, optionally followed by `— short note for the executor`.
+- Pick the token whose listed caption actually matches the slide's topic.
+- If no listed figure fits, omit the real paper figure instead of guessing — never write `![caption](path)` or make up a path.
+
+These tokens are the only valid way to reference extracted paper figures.
 
 ## Guidelines
 

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useGeneration } from "../../hooks/useGeneration";
 import { useLocale } from "../../i18n";
+import { translateStageStatus } from "../../lib/i18nStatus";
 
 export function Sidebar() {
   const { t, locale } = useLocale();
@@ -21,6 +22,7 @@ export function Sidebar() {
   ];
   const recentHistory = history.slice(0, 5);
   const currentResultJobId = searchParams.get("job");
+  const currentGenerateJobId = searchParams.get("job");
   const isFreshEntryActive = location.pathname === "/generate" && searchParams.get("fresh") === "1";
   const formatter = new Intl.DateTimeFormat(locale === "zh" ? "zh-CN" : "en-US", {
     month: "numeric",
@@ -83,22 +85,26 @@ export function Sidebar() {
               const target = getHistoryTarget(entry, activeJobId);
               const isConfirmOpen = confirmState?.jobId === entry.jobId;
               const isActive =
-                (target.startsWith("/generate") && location.pathname === "/generate" && searchParams.get("job") === entry.jobId) ||
+                (target.startsWith("/generate") && location.pathname === "/generate" && currentGenerateJobId === entry.jobId) ||
                 (target === "/generate" && location.pathname === "/generate" && !searchParams.get("job")) ||
                 (location.pathname === "/result" && currentResultJobId === entry.jobId);
 
               return (
                 <div key={entry.jobId} className="history-record">
-                  <Link to={target} className={`history-card ${isActive ? "history-card-active" : ""}`}>
+                  <Link
+                    to={target}
+                    className={`history-card ${isActive ? "history-card-active" : ""}`}
+                    aria-current={isActive ? "page" : undefined}
+                  >
                     <div className="history-card-header">
                       <strong className="history-name" title={entry.fileName}>
                         {entry.fileName}
                       </strong>
-                      <span className="history-status">{translateHistoryStatus(entry.status, locale)}</span>
+                      <span className="history-status">{translateStageStatus(entry.status, locale, "history")}</span>
                     </div>
                     <div className="history-card-meta">
                       <span>{entry.slideCount > 0 ? `${entry.slideCount} ${t("preview.slides")}` : t("common.pending")}</span>
-                      <span>{formatter.format(new Date(entry.updatedAt))}</span>
+                      <span>{formatter.format(new Date(entry.createdAt ?? entry.updatedAt))}</span>
                     </div>
                   </Link>
                   <button
@@ -191,26 +197,4 @@ function getHistoryTarget(
 function isHistoryResultStatus(status: string) {
   const normalized = status.toLowerCase();
   return normalized === "complete" || normalized === "error" || normalized === "cancelled";
-}
-
-function translateHistoryStatus(status: string, locale: "en" | "zh") {
-  const translations: Record<string, { zh: string; en: string }> = {
-    pending: { zh: "处理中", en: "Pending" },
-    parsing: { zh: "解析中", en: "Parsing" },
-    research: { zh: "研究中", en: "Research" },
-    strategy: { zh: "规划中", en: "Strategy" },
-    generation: { zh: "生成中", en: "Generation" },
-    postprocess: { zh: "后处理中", en: "Post-process" },
-    export: { zh: "导出中", en: "Export" },
-    complete: { zh: "已完成", en: "Complete" },
-    error: { zh: "失败", en: "Error" },
-    cancelled: { zh: "已取消", en: "Cancelled" },
-  };
-
-  const normalized = status.toLowerCase();
-  const matched = translations[normalized];
-  if (matched) {
-    return locale === "zh" ? matched.zh : matched.en;
-  }
-  return status;
 }

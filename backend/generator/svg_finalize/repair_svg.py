@@ -12,22 +12,165 @@ from lxml import etree
 _AMP_RE = re.compile(r"&(?!#\d+;|#x[0-9A-Fa-f]+;|[A-Za-z_][\w.-]*;)")
 _TEXT_CLOSE_RE = re.compile(r"(<text\b[^>]*>[^<]*)</tspan>", re.IGNORECASE)
 _STRAY_TSPAN_CLOSE_RE = re.compile(r"</tspan>\s*</text>", re.IGNORECASE)
+_TEXT_BLOCK_RE = re.compile(r"(<text\b[^>]*>)(.*?)(</text\s*>)", re.IGNORECASE | re.DOTALL)
+_SPAN_OPEN_RE = re.compile(r"<span\b([^>]*)>", re.IGNORECASE)
+_SPAN_CLOSE_RE = re.compile(r"</span\s*>", re.IGNORECASE)
+
+# SVG spec forbids nesting <text> inside <text> — LLMs sometimes emit it
+# anyway to fake inline emphasis. When that happens, lxml's recover mode
+# silently splits the run into overlapping siblings, producing scrambled
+# output. ``_unnest_text`` below pre-rewrites each inner ``<text ...>X</text>``
+# into ``<tspan ...>X</tspan>`` so the SVG parses correctly and the inline
+# run renders as one logical line.
+
+
+def _unnest_text(content: str) -> tuple[str, int]:
+    """Convert any inner ``<text>`` nested inside an outer ``<text>`` into ``<tspan>``.
+
+    Returns ``(new_content, changes)``. Operates on the raw string because
+    we run *before* the XML parser; this is intentional — once lxml
+    recovers from the malformed nesting it is too late to know what was
+    nested where. A bounded outer-loop is used so multiple levels of
+    accidental nesting collapse cleanly.
+    """
+    changes = 0
+
+    def _scan_once(src: str) -> tuple[str, int]:
+        out = []
+        i = 0
+        depth = 0  # currently-open <text> elements
+        local_changes = 0
+        text_open_re = re.compile(r"<text\b[^>]*>", re.IGNORECASE)
+        text_close_re = re.compile(r"</text\s*>", re.IGNORECASE)
+        n = len(src)
+        while i < n:
+            open_match = text_open_re.search(src, i)
+            close_match = text_close_re.search(src, i)
+            # Earliest tag wins.
+            next_open = open_match.start() if open_match else n + 1
+            next_close = close_match.start() if close_match else n + 1
+            if next_open == n + 1 and next_close == n + 1:
+                out.append(src[i:])
+                break
+            if next_open < next_close:
+                # An <text> tag is opening.
+                if depth >= 1 and open_match is not None:
+                    # Inner <text> — rewrite this open + its matching close
+                    # to a <tspan> pair. Find the matching </text>.
+                    inner_open_end = open_match.end()
+                    attrs = open_match.group(0)[len("<text"):-1]
+                    # Greedy-but-bounded scan for matching close, allowing
+                    # further nesting (rare).
+                    sub_depth = 1
+                    j = inner_open_end
+                    while j < n and sub_depth > 0:
+                        nxt_open = text_open_re.search(src, j)
+                        nxt_close = text_close_re.search(src, j)
+                        if nxt_close is None:
+                            break
+                        if nxt_open is not None and nxt_open.start() < nxt_close.start():
+                            sub_depth += 1
+                            j = nxt_open.end()  # noqa: PERF — inner branch
+                        else:
+                            sub_depth -= 1
+                            j = nxt_close.end()  # nxt_close is not None here
+                            if sub_depth == 0:
+                                inner_close_start = nxt_close.start()
+                                inner_close_end = nxt_close.end()
+                                # Emit everything before this inner open.
+                                out.append(src[i:open_match.start()])
+                                # Rewrite as <tspan>...</tspan>, preserving
+                                # the inner content verbatim (any further
+                                # nested <text> inside will be picked up by
+                                # the next outer pass via local_changes).
+                                inner_body = src[inner_open_end:inner_close_start]
+                                out.append(f"<tspan{attrs}>{inner_body}</tspan>")
+                                i = inner_close_end
+                                local_changes += 1
+                                break
+                    else:
+                        # No matching close; bail out.
+                        out.append(src[i:])
+                        break
+                    continue
+                # Outer <text>: keep as-is, increment depth.
+                out.append(src[i:open_match.end()])
+                i = open_match.end()
+                depth += 1
+            else:
+                # </text> wins.
+                out.append(src[i:close_match.end()])
+                i = close_match.end()
+                if depth > 0:
+                    depth -= 1
+        return "".join(out), local_changes
+
+    # Run repeatedly so multi-level nesting collapses fully.
+    for _ in range(4):
+        content, did = _scan_once(content)
+        changes += did
+        if did == 0:
+            break
+    return content, changes
+
+
+def _replace_html_spans_in_text(content: str) -> tuple[str, int]:
+    """Convert HTML ``<span>`` runs inside SVG ``<text>`` to ``<tspan>``.
+
+    Browsers may parse ``<span>`` inside inline SVG as HTML flow content,
+    causing the span text to escape the slide and render as a huge page-level
+    line. SVG text styling must use ``<tspan>`` instead.
+    """
+    changes = 0
+
+    def _rewrite_text_block(match: re.Match[str]) -> str:
+        nonlocal changes
+        open_tag, body, close_tag = match.groups()
+        span_opens = len(_SPAN_OPEN_RE.findall(body))
+        span_closes = len(_SPAN_CLOSE_RE.findall(body))
+        if span_opens == 0 and span_closes == 0:
+            return match.group(0)
+        changes += span_opens + span_closes
+        body = _SPAN_OPEN_RE.sub(r"<tspan\1>", body)
+        body = _SPAN_CLOSE_RE.sub("</tspan>", body)
+        return f"{open_tag}{body}{close_tag}"
+
+    return _TEXT_BLOCK_RE.sub(_rewrite_text_block, content), changes
 
 
 def repair_svg_file(svg_path: Path) -> int:
     """Repair common malformed XML patterns in-place.
 
     Returns 1 when the file was modified and became parseable, else 0.
+
+    Run order matters:
+      1) Always pre-rewrite illegally nested ``<text>`` to ``<tspan>``
+         even if the file *parses* — lxml's recover mode silently
+         flattens nested text into broken sibling runs, so we cannot
+         rely on a parse-error signal here.
+      2) Standard malformed-XML repairs (entity escaping, stray tspan
+         close tags, etc.) that only run when the file does NOT parse.
     """
     content = svg_path.read_text(encoding="utf-8")
 
+    # Step 1: always run raw text fix-ups. ``lxml`` would otherwise accept
+    # malformed/invalid input silently and downstream finalizers would see
+    # broken sibling runs or leaked HTML flow content.
+    repaired, nested_fixes = _unnest_text(content)
+    repaired, span_fixes = _replace_html_spans_in_text(repaired)
+    parses_now = True
     try:
-        ET.fromstring(content)
-        return 0
+        ET.fromstring(repaired)
     except ET.ParseError:
-        pass
+        parses_now = False
 
-    repaired = content
+    if parses_now:
+        if repaired != content:
+            svg_path.write_text(repaired, encoding="utf-8")
+            return 1
+        return 0
+
+    # Step 2: standard malformed-XML repairs.
     repaired = _AMP_RE.sub("&amp;", repaired)
 
     previous = None

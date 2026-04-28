@@ -4,6 +4,7 @@ import type { EChartsOption } from "echarts";
 import { Layout } from "../components/layout/Layout";
 import { useLocale } from "../i18n";
 import { fetchUsageSnapshot } from "../lib/api";
+import { translateStageStatus } from "../lib/i18nStatus";
 import { openUsageSocket } from "../lib/ws";
 
 interface DailyRow {
@@ -374,7 +375,7 @@ export function LogsPage() {
           lineStyle: { color: chartColors.muted },
         },
         data: stageRows.map((row, idx) => ({
-          name: row.stage,
+          name: translateStageStatus(row.stage, locale, "logs"),
           value: row.total_tokens,
           itemStyle: {
             color: STAGE_COLORS[idx % STAGE_COLORS.length],
@@ -382,7 +383,7 @@ export function LogsPage() {
         })),
       },
     ],
-  }), [chartColors, stageRows, tooltipPosition]);
+  }), [chartColors, locale, stageRows, tooltipPosition]);
 
   const subtitle = t("logs.subtitle");
 
@@ -415,6 +416,7 @@ export function LogsPage() {
               hasData={dailyRows.length > 0}
               option={dailyOption}
               renderKey={`daily-${chartRevision}`}
+              emptyText={t("logs.noData")}
             />
           </article>
           <article className="logs-card">
@@ -423,6 +425,7 @@ export function LogsPage() {
               hasData={topModels.length > 0}
               option={modelOption}
               renderKey={`model-${chartRevision}`}
+              emptyText={t("logs.noData")}
             />
           </article>
           <article className="logs-card">
@@ -431,6 +434,7 @@ export function LogsPage() {
               hasData={stageRows.length > 0}
               option={stageOption}
               renderKey={`stage-${chartRevision}`}
+              emptyText={t("logs.noData")}
             />
           </article>
         </section>
@@ -460,7 +464,7 @@ export function LogsPage() {
                     <td>{formatter.format(new Date(r.ts))}</td>
                     <td>{r.provider}</td>
                     <td>{r.model}</td>
-                    <td>{r.stage ?? "-"}</td>
+                    <td>{r.stage ? translateStageStatus(r.stage, locale, "logs") : "-"}</td>
                     <td title={r.job_id ?? ""}>
                       {r.job_id ? r.job_id.slice(0, 8) : "-"}
                     </td>
@@ -494,13 +498,15 @@ function ChartPanel({
   hasData,
   option,
   renderKey,
+  emptyText,
 }: {
   hasData: boolean;
   option: EChartsOption;
   renderKey: string;
+  emptyText: string;
 }) {
   if (!hasData) {
-    return <p className="muted-copy">No data yet.</p>;
+    return <p className="muted-copy">{emptyText}</p>;
   }
   return (
     <div className="logs-chart-shell">

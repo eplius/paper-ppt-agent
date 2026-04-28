@@ -6,7 +6,15 @@ from typing import Any
 
 from .manager import Job
 
-PIPELINE_STAGES = ("parsing", "research", "strategy", "generation", "postprocess", "export", "cancelled")
+PIPELINE_STAGES = (
+    "parsing",
+    "research",
+    "strategy",
+    "generation",
+    "postprocess",
+    "export",
+    "cancelled",
+)
 
 
 def build_snapshot_event(job_id: str, job: Job) -> dict[str, Any]:

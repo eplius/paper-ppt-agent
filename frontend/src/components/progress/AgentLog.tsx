@@ -1,12 +1,13 @@
 import { Terminal } from "lucide-react";
 import { useLocale } from "../../i18n";
+import { translateLogLine } from "../../lib/i18nStatus";
 
 interface AgentLogProps {
   logs?: string[];
 }
 
 export function AgentLog({ logs }: AgentLogProps) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const safeLogs = Array.isArray(logs) ? logs : [];
   const summary = safeLogs.length === 0 ? t("log.summaryEmpty") : `${safeLogs.length} ${t("log.summaryCount")}`;
   return (
@@ -23,7 +24,7 @@ export function AgentLog({ logs }: AgentLogProps) {
       <div className="log-console">
         {safeLogs.length === 0 ? <p className="muted-copy">{t("log.empty")}</p> : null}
         {safeLogs.map((log, index) => (
-          <p key={`${log}-${index}`} className="log-line">{log}</p>
+          <p key={`${log}-${index}`} className="log-line">{translateLogLine(log, locale)}</p>
         ))}
       </div>
     </section>

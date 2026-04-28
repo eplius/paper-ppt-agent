@@ -19,6 +19,17 @@ from .base import PaperParser
 from .paper_model import PaperFigure, PaperSection, ParsedPaper
 
 
+def _probe_image_size(path: Path) -> tuple[int, int]:
+    """Best-effort PIL probe; returns (0, 0) when unreadable."""
+    try:
+        from PIL import Image
+
+        with Image.open(path) as img:
+            return int(img.width), int(img.height)
+    except Exception:
+        return 0, 0
+
+
 class LaTeXParser(PaperParser):
     """Parse LaTeX source files into structured paper data."""
 
@@ -221,8 +232,16 @@ class LaTeXParser(PaperParser):
                         )
                     )
                     continue
+                w, h = _probe_image_size(dest)
                 figures.append(
-                    PaperFigure(path=dest, caption=caption, label=label, available=True)
+                    PaperFigure(
+                        path=dest,
+                        caption=caption,
+                        label=label,
+                        available=True,
+                        natural_width=w,
+                        natural_height=h,
+                    )
                 )
             else:
                 # Image referenced in LaTeX but not present on disk (e.g. single

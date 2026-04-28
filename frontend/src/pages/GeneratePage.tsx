@@ -88,20 +88,22 @@ export function GeneratePage() {
   const [detailLevel, setDetailLevel] = useState("normal");
   const [timeoutSeconds, setTimeoutSeconds] = useState("");
   const [instruction, setInstruction] = useState("");
+  const freshRequested = searchParams.get("fresh") === "1";
+  const targetJobId = searchParams.get("job") ?? undefined;
 
   useEffect(() => {
     void loadProviders();
   }, [loadProviders]);
 
   useEffect(() => {
-    if (searchParams.get("fresh") === "1") {
+    if (freshRequested) {
       reset();
+      navigate("/generate", { replace: true });
       return;
     }
 
-    const targetJobId = searchParams.get("job") ?? undefined;
     void resumeCurrentRun(targetJobId);
-  }, [navigate, reset, resumeCurrentRun, searchParams]);
+  }, [freshRequested, navigate, reset, resumeCurrentRun, targetJobId]);
 
   useEffect(() => {
     if (!provider && providers.length > 0) {
