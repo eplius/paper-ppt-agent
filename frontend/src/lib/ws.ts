@@ -131,9 +131,15 @@ function createReconnectingSocket<TEvent>({
       }
       onClose?.(ev);
       if (closedByUser) return;
-      // Clean closes (1000) typically mean the server is done with us —
-      // e.g. the job reached terminal state. Don't reconnect.
-      if (ev?.code === 1000) return;
+      // Treat clean closes as terminal:
+      //   1000 — normal closure (server signalled "done")
+      //   1005 — no status; browsers report this when the server closed
+      //          without an explicit code, which our backend does on
+      //          terminal job state via Starlette's default
+      //   1008 — policy violation; we use this for "job not found", the
+      //          client must not retry
+      const code = ev?.code;
+      if (code === 1000 || code === 1005 || code === 1008) return;
       if (maxAttempts > 0 && attempt >= maxAttempts) {
         onGiveUp?.();
         return;

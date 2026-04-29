@@ -65,7 +65,9 @@ async def job_updates(websocket: WebSocket, job_id: str) -> None:
                 "total_slides": 0,
                 "data": {"error": "not_found"},
             })
-            await websocket.close()
+            # 1008 (policy violation) tells the client the resource is
+            # permanently gone — it must not reconnect.
+            await websocket.close(code=1008)
             return
 
         # 1. Always send a snapshot first so the client can sync its
@@ -86,13 +88,16 @@ async def job_updates(websocket: WebSocket, job_id: str) -> None:
             await websocket.send_json(event)
 
         # If the job is already terminal and we've replayed everything,
-        # close cleanly so the client stops reconnecting.
+        # close cleanly so the client stops reconnecting. Use an explicit
+        # code=1000 — Starlette's default close has no status code, which
+        # the browser surfaces as 1005 and our reconnect loop interprets
+        # as an abnormal disconnect.
         job = session_manager.get_job(job_id)
         if job and job.status in TERMINAL_STATUSES and not session_manager.is_job_running(job_id):
             # Drain any queued events that were enqueued before subscribe
             # but not yet consumed by the queue iterator.
             await _drain_queue_into_socket(websocket, queue, replayed_seqs)
-            await websocket.close()
+            await websocket.close(code=1000)
             return
 
         # 3. Stream live events with periodic heartbeats. ``asyncio.wait``
