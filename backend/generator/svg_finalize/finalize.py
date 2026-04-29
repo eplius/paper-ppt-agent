@@ -21,6 +21,7 @@ from .embed_images import build_image_index, embed_images_in_svg
 from .fix_image_aspect import fix_image_aspect_in_svg
 from .flatten_tspan import flatten_text_in_svg
 from .merge_adjacent_text import merge_adjacent_text_in_svg
+from .normalize_fonts import normalize_text_fonts_in_svg
 from .repair_svg import repair_svg_file
 from .svg_rect_to_path import convert_rounded_rects_in_svg
 from ..project_manager import prepare_for_finalize, get_svg_files
@@ -67,6 +68,7 @@ def finalize_project(
         "images_embedded": 0,
         "texts_flattened": 0,
         "texts_merged": 0,
+        "fonts_normalized": 0,
         "rects_converted": 0,
     }
 
@@ -97,6 +99,9 @@ def finalize_project(
 
         # Step 5.5: Merge overlapping sibling text nodes emitted by the LLM
         stats["texts_merged"] += merge_adjacent_text_in_svg(svg_path)
+
+        # Step 5.6: Normalize CSS font fallback stacks to concrete PPT fonts
+        stats["fonts_normalized"] += normalize_text_fonts_in_svg(svg_path)
 
         # Step 6: Convert rounded rects to paths
         stats["rects_converted"] += convert_rounded_rects_in_svg(svg_path)

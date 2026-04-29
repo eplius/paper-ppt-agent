@@ -19,11 +19,11 @@ from .utils import (
     ANGLE_UNIT,
     estimate_text_width,
     font_px_to_half_pts,
-    is_cjk_char,
     parse_hex_color,
     parse_svg_length,
     parse_svg_ratio,
     parse_transform,
+    select_ppt_font_family,
     px_to_emu,
     xml_escape,
 )
@@ -393,8 +393,12 @@ def _make_run(text: str, elem: Any, ctx: ConvertContext, font_size: float) -> di
         "bold": weight in ("bold", "700", "800", "900"),
         "italic": style == "italic",
         "underline": "underline" in decoration,
-        "font_family": family.strip("'\""),
+        "font_family": _select_ppt_font_family(text, family),
     }
+
+
+def _select_ppt_font_family(text: str, font_stack: str) -> str:
+    return select_ppt_font_family(text, font_stack)
 
 
 def _resolve_text_color(fill: str, ctx: ConvertContext) -> str:
@@ -450,9 +454,10 @@ def _build_run_xml(run: dict) -> str:
 def _build_text_shape(x: float, y: float, runs: list[dict], ctx: ConvertContext, anchor: str) -> str:
     """Build a single DrawingML text box."""
     total_text = "".join(run["text"] for run in runs)
-    text_w = estimate_text_width(total_text, max((run["font_size"] for run in runs), default=16), any(run["bold"] for run in runs))
-    text_h = max((run["font_size"] for run in runs), default=16) * 1.6
-    padded_w = max(text_w * 1.08, 10)
+    max_font_size = max((run["font_size"] for run in runs), default=16)
+    text_w = estimate_text_width(total_text, max_font_size, any(run["bold"] for run in runs))
+    text_h = max_font_size * 1.35
+    padded_w = max(text_w * 1.45 + max_font_size, 24)
 
     algn_map = {"start": "l", "middle": "ctr", "end": "r"}
     algn = algn_map.get(anchor, "l")
@@ -464,7 +469,7 @@ def _build_text_shape(x: float, y: float, runs: list[dict], ctx: ConvertContext,
         anchor_x = x - padded_w
 
     off_x = px_to_emu(ctx.ctx_x(anchor_x))
-    off_y = px_to_emu(ctx.ctx_y(y) - text_h * 0.8)  # SVG y uses baseline
+    off_y = px_to_emu(ctx.ctx_y(y) - max_font_size * 1.05)  # SVG y uses baseline
     ext_cx = px_to_emu(ctx.ctx_w(padded_w))
     ext_cy = px_to_emu(ctx.ctx_h(text_h))
     runs_xml = "".join(_build_run_xml(run) for run in runs)
@@ -481,7 +486,7 @@ def _build_text_shape(x: float, y: float, runs: list[dict], ctx: ConvertContext,
         f'<a:noFill/>'
         f'</p:spPr>'
         f'<p:txBody>'
-        f'<a:bodyPr wrap="square" anchor="t" lIns="0" tIns="0" rIns="0" bIns="0"><a:normAutofit/></a:bodyPr>'
+        f'<a:bodyPr wrap="none" anchor="t" lIns="0" tIns="0" rIns="0" bIns="0"><a:noAutofit/></a:bodyPr>'
         f'<a:lstStyle/>'
         f'<a:p><a:pPr algn="{algn}"/>{runs_xml}</a:p>'
         f'</p:txBody>'

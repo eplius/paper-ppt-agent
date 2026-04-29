@@ -152,6 +152,73 @@ def is_cjk_char(ch: str) -> bool:
     )
 
 
+def select_ppt_font_family(text: str, font_stack: str) -> str:
+    """Pick one concrete typeface from a CSS font-family stack.
+
+    SVG preview accepts CSS fallback lists. DrawingML expects one concrete
+    typeface; writing the whole CSS stack makes PowerPoint fall back
+    unpredictably, especially for Chinese text.
+    """
+    families = split_font_stack(font_stack)
+    lower_families = {family.lower(): family for family in families}
+
+    for mono in ("consolas", "courier new", "monaco"):
+        if mono in lower_families:
+            return lower_families[mono]
+
+    has_cjk = any(is_cjk_char(ch) for ch in text)
+    cjk_candidates = (
+        "microsoft yahei",
+        "dengxian",
+        "simhei",
+        "simsun",
+        "source han sans sc",
+        "noto sans cjk sc",
+        "noto sans sc",
+        "pingfang sc",
+    )
+    if has_cjk or any(candidate in lower_families for candidate in cjk_candidates):
+        for candidate in cjk_candidates:
+            if candidate in lower_families:
+                family = lower_families[candidate]
+                if candidate in {"source han sans sc", "noto sans cjk sc", "noto sans sc", "pingfang sc"}:
+                    return "Microsoft YaHei"
+                return family
+        return "Microsoft YaHei"
+
+    concrete = [
+        family
+        for family in families
+        if family.lower() not in {"sans-serif", "serif", "monospace", "system-ui"}
+    ]
+    for preferred in ("aptos", "calibri", "arial", "helvetica", "inter"):
+        if preferred in lower_families:
+            return lower_families[preferred]
+    return concrete[0] if concrete else "Arial"
+
+
+def split_font_stack(font_stack: str) -> list[str]:
+    """Split a CSS font-family stack without keeping quote characters."""
+    families: list[str] = []
+    current: list[str] = []
+    quote: str | None = None
+    for ch in font_stack:
+        if ch in {"'", '"'}:
+            quote = None if quote == ch else ch if quote is None else quote
+            continue
+        if ch == "," and quote is None:
+            family = "".join(current).strip()
+            if family:
+                families.append(family)
+            current = []
+            continue
+        current.append(ch)
+    family = "".join(current).strip()
+    if family:
+        families.append(family)
+    return families
+
+
 def estimate_text_width(text: str, font_size: float, bold: bool = False) -> float:
     """Estimate text width in pixels."""
     width = 0.0

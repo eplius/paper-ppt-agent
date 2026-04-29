@@ -8,7 +8,11 @@ from backend.orchestrator import pipeline as pipeline_module
 from backend.orchestrator.pipeline import GenerationRequest
 from backend.parser.paper_model import ParsedPaper, PaperSection
 from backend.generator.svg_to_pptx.context import ConvertContext
-from backend.generator.svg_to_pptx.elements import convert_rect
+from backend.generator.svg_to_pptx.elements import (
+    _build_text_shape,
+    _select_ppt_font_family,
+    convert_rect,
+)
 
 
 def test_pipeline_smoke(monkeypatch, workspace_tmp):
@@ -131,3 +135,37 @@ def test_svg_export_handles_percentage_lengths_and_opacity():
 
     assert shape_xml
     assert 'cx="' in shape_xml
+
+
+def test_svg_export_selects_single_ppt_font_from_css_stack():
+    font = _select_ppt_font_family(
+        "轻量级可见性感知",
+        "Inter, Noto Sans CJK SC, Source Han Sans SC, Microsoft YaHei, Arial, sans-serif",
+    )
+
+    assert font == "Microsoft YaHei"
+
+
+def test_svg_export_text_boxes_do_not_autowrap_or_autofit():
+    ctx = ConvertContext(defs={})
+    shape_xml = _build_text_shape(
+        640,
+        228,
+        [
+            {
+                "text": "VFR",
+                "font_size": 72,
+                "color": "1A365D",
+                "bold": True,
+                "italic": False,
+                "underline": False,
+                "font_family": "Microsoft YaHei",
+            }
+        ],
+        ctx,
+        "middle",
+    )
+
+    assert 'wrap="none"' in shape_xml
+    assert "<a:noAutofit/>" in shape_xml
+    assert "<a:normAutofit/>" not in shape_xml

@@ -15,6 +15,7 @@ from .embed_icons import embed_icons_in_file
 from .embed_images import embed_images_in_svg
 from .flatten_tspan import flatten_text_in_svg
 from .merge_adjacent_text import merge_adjacent_text_in_svg
+from .normalize_fonts import normalize_text_fonts_in_svg
 from .repair_svg import repair_svg_file
 
 
@@ -44,3 +45,4 @@ def _prepare_in_place(svg_path: Path) -> None:
     embed_images_in_svg(svg_path)
     flatten_text_in_svg(svg_path)
     merge_adjacent_text_in_svg(svg_path)
+    normalize_text_fonts_in_svg(svg_path)
