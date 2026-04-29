@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from backend.llm import registry as registry_module
-from backend.llm.provider_openai import OpenAIProvider
+from backend.llm.provider_openai import OpenAIProvider, normalize_openai_base_url
 from backend.llm.types import ModelInfo, ProviderInfo
 
 
@@ -59,6 +59,21 @@ def test_create_provider_defaults_deepseek_base_url(monkeypatch):
         "base_url": "https://api.deepseek.com",
         "provider_name": "deepseek",
     }
+
+
+def test_openai_base_url_accepts_full_chat_completions_endpoint():
+    assert (
+        normalize_openai_base_url("https://proxy.example.com/v1/chat/completions")
+        == "https://proxy.example.com/v1"
+    )
+    assert (
+        normalize_openai_base_url("https://proxy.example.com/openai/v1/chat/completions/")
+        == "https://proxy.example.com/openai/v1"
+    )
+    assert (
+        normalize_openai_base_url("https://proxy.example.com/v1")
+        == "https://proxy.example.com/v1"
+    )
 
 
 @pytest.mark.asyncio

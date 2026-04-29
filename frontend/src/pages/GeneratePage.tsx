@@ -42,12 +42,11 @@ function writeRoutingProfiles(profiles: RoutingProfileMap) {
 }
 
 function getProviderDefaults(
-  providers: { name: string; models: { id: string }[]; default_base_url?: string | null }[],
+  providers: { name: string; default_base_url?: string | null }[],
   providerName: string,
 ) {
   const selectedProvider = providers.find((item) => item.name === providerName);
   return {
-    model: selectedProvider?.models[0]?.id ?? "",
     baseUrl: selectedProvider?.default_base_url ?? "",
   };
 }
@@ -135,7 +134,7 @@ export function GeneratePage() {
       const saved = readRoutingProfiles()[defaultProvider];
       const defaults = getProviderDefaults(providers, defaultProvider);
       setProvider(defaultProvider);
-      setModel(saved?.model || defaults.model);
+      setModel("");
       setBaseUrl(saved?.baseUrl || defaults.baseUrl);
       setApiKey(saved?.apiKey || "");
     }
@@ -151,7 +150,7 @@ export function GeneratePage() {
     const profiles = readRoutingProfiles();
     const saved = profiles[provider];
     const defaults = getProviderDefaults(providers, provider);
-    setModel(saved?.model || defaults.model);
+    setModel("");
     setBaseUrl(saved?.baseUrl || defaults.baseUrl);
     setApiKey(saved?.apiKey || "");
   }, [provider, providers, selectedRunConfig?.provider, targetJobId]);
@@ -164,8 +163,9 @@ export function GeneratePage() {
       return;
     }
     const profiles = readRoutingProfiles();
+    const existing = profiles[provider];
     profiles[provider] = {
-      model,
+      model: model.trim() || existing?.model || "",
       baseUrl,
       apiKey,
     };
@@ -265,7 +265,7 @@ export function GeneratePage() {
             disabled={
               !uploadSession ||
               !provider ||
-              !model ||
+              !model.trim() ||
               !apiKey ||
               (languageMode === "custom" && !customLanguage.trim())
             }
@@ -273,12 +273,20 @@ export function GeneratePage() {
               if (!uploadSession) {
                 return;
               }
+              const normalizedModel = model.trim();
+              const profiles = readRoutingProfiles();
+              profiles[provider] = {
+                model: normalizedModel,
+                baseUrl,
+                apiKey,
+              };
+              writeRoutingProfiles(profiles);
               const jobId = await startGeneration({
                 session_id: uploadSession.session_id,
                 instruction,
                 model_config: {
                   provider,
-                  model,
+                  model: normalizedModel,
                   api_key: apiKey,
                   base_url: baseUrl || undefined,
                 },

@@ -24,6 +24,22 @@ from .types import (
 )
 
 
+def normalize_openai_base_url(base_url: str | None) -> str | None:
+    """Return an SDK base URL from a user-entered OpenAI-compatible URL.
+
+    The OpenAI SDK expects the API root, for example ``https://host/v1``.
+    Users often paste the full chat-completions endpoint; if passed through
+    unchanged the SDK appends ``/chat/completions`` again.
+    """
+    if not base_url:
+        return None
+    normalized = base_url.strip().rstrip("/")
+    suffix = "/chat/completions"
+    if normalized.lower().endswith(suffix):
+        normalized = normalized[: -len(suffix)].rstrip("/")
+    return normalized or None
+
+
 class OpenAIProvider(LLMProvider):
     """OpenAI provider wrapping AsyncOpenAI."""
 
@@ -33,9 +49,10 @@ class OpenAIProvider(LLMProvider):
         base_url: str | None = None,
         provider_name: str = "openai",
     ) -> None:
-        self._client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+        normalized_base_url = normalize_openai_base_url(base_url)
+        self._client = AsyncOpenAI(api_key=api_key, base_url=normalized_base_url)
         self._provider_name = provider_name
-        self._base_url = (base_url or "").rstrip("/")
+        self._base_url = (normalized_base_url or "").rstrip("/")
 
     def _is_deepseek_request(self, model: str | None = None) -> bool:
         return (
@@ -64,6 +81,9 @@ class OpenAIProvider(LLMProvider):
         }
         if normalized_max_tokens:
             kwargs["max_tokens"] = normalized_max_tokens
+        if self._is_deepseek_request(model) and model == "deepseek-v4-pro":
+            kwargs["reasoning_effort"] = "max"
+            kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
         if stream:
             kwargs["stream"] = True
         return kwargs
