@@ -44,7 +44,7 @@ class GenerationRequest:
     style: str = "academic"
     num_pages: int | None = None
     instruction: str = ""
-    language: str = "en"
+    language: str = "zh"
     detail_level: str = "normal"
     timeout_seconds: int | None = None
     style_overrides: dict | None = None  # {palette: [...], font: "...", density: "..."}
@@ -345,7 +345,7 @@ class RefineRequest:
     base_url: str | None = None
     canvas_format: str = "ppt169"
     style: str = "academic"
-    language: str = "en"
+    language: str = "zh"
     detail_level: str = "normal"
     timeout_seconds: int | None = None
     target_pages: list[int] | None = None

@@ -147,7 +147,7 @@ async def refine_presentation(request: RefineRequest) -> RefineResponse:
         base_url=request.model_settings.base_url,
         canvas_format=options.canvas_format or parent_job.canvas_format or "ppt169",
         style=options.style or parent_job.style or "academic",
-        language=options.language or parent_job.language or "en",
+        language=options.language or parent_job.language or "zh",
         detail_level=options.detail_level or parent_job.detail_level or "normal",
         timeout_seconds=options.timeout_seconds,
         target_pages=request.target_pages,

@@ -3,6 +3,7 @@ import { createContext, useContext, useEffect, useMemo, useState, type PropsWith
 export type Locale = "en" | "zh";
 
 const STORAGE_KEY = "paper-ppt-agent-locale";
+const DEFAULT_VERSION_KEY = "paper-ppt-agent-locale-default-v2";
 
 type Dictionary = Record<string, string>;
 
@@ -366,13 +367,18 @@ const LocaleContext = createContext<LocaleContextValue | null>(null);
 
 export function LocaleProvider({ children }: PropsWithChildren) {
   const [locale, setLocale] = useState<Locale>(() => {
+    const migrated = window.localStorage.getItem(DEFAULT_VERSION_KEY) === "1";
     const stored = window.localStorage.getItem(STORAGE_KEY);
-    return stored === "zh" ? "zh" : "en";
+    if (!migrated) {
+      return "zh";
+    }
+    return stored === "en" ? "en" : "zh";
   });
 
   useEffect(() => {
     document.documentElement.lang = locale === "zh" ? "zh-CN" : "en";
     window.localStorage.setItem(STORAGE_KEY, locale);
+    window.localStorage.setItem(DEFAULT_VERSION_KEY, "1");
   }, [locale]);
 
   const value = useMemo<LocaleContextValue>(

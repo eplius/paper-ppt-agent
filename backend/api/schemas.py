@@ -33,7 +33,7 @@ class GenerationOptions(BaseModel):
     canvas_format: str = "ppt169"
     style: str = "academic"
     num_pages: int | None = None
-    language: str = "en"
+    language: str = "zh"
     detail_level: str = "normal"
     timeout_seconds: int | None = Field(default=None, ge=1)
     style_overrides: StyleOverrides | None = None
