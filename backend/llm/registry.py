@@ -22,18 +22,18 @@ _PROVIDER_INFO: dict[str, ProviderInfo] = {
         display_name="OpenAI",
         models=[
             ModelInfo(
-                id="gpt-5.4",
-                display_name="GPT-5.4",
+                id="gpt-5.5",
+                display_name="GPT-5.5",
                 supports_vision=True,
                 supports_structured_output=True,
                 context_window=400000,
             ),
             ModelInfo(
-                id="gpt-5.3",
-                display_name="GPT-5.3",
+                id="gpt-5.4",
+                display_name="GPT-5.4",
                 supports_vision=True,
                 supports_structured_output=True,
-                context_window=200000,
+                context_window=400000,
             ),
         ],
     ),
@@ -126,6 +126,7 @@ def create_provider(
     api_key: str,
     *,
     base_url: str | None = None,
+    deepseek_settings: dict | None = None,
 ) -> LLMProvider:
     """Create an LLM provider instance by name."""
     if name not in _PROVIDER_IMPORTS:
@@ -136,7 +137,14 @@ def create_provider(
         resolved_base_url = base_url
         if name == "deepseek" and not resolved_base_url:
             resolved_base_url = DEEPSEEK_BASE_URL
-        return cls(api_key=api_key, base_url=resolved_base_url, provider_name=name)
+        kwargs = {
+            "api_key": api_key,
+            "base_url": resolved_base_url,
+            "provider_name": name,
+        }
+        if deepseek_settings is not None:
+            kwargs["deepseek_settings"] = deepseek_settings
+        return cls(**kwargs)
     return cls(api_key=api_key)
 
 

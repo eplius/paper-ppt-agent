@@ -76,6 +76,22 @@ def test_openai_base_url_accepts_full_chat_completions_endpoint():
     )
 
 
+def test_openai_default_models_use_gpt55_not_gpt53():
+    registry_openai = next(
+        provider for provider in registry_module.list_providers() if provider.name == "openai"
+    )
+    provider = object.__new__(OpenAIProvider)
+    provider._provider_name = "openai"
+
+    registry_models = [model.id for model in registry_openai.models]
+    runtime_models = [model.id for model in provider.get_provider_info().models]
+
+    assert registry_models == ["gpt-5.5", "gpt-5.4"]
+    assert runtime_models == ["gpt-5.5", "gpt-5.4"]
+    assert "gpt-5.3" not in registry_models
+    assert "gpt-5.3" not in runtime_models
+
+
 @pytest.mark.asyncio
 async def test_openai_provider_adds_deepseek_reasoning_kwargs(monkeypatch):
     captured: dict[str, object] = {}
@@ -120,3 +136,53 @@ async def test_openai_provider_adds_deepseek_reasoning_kwargs(monkeypatch):
     assert captured["reasoning_effort"] == "max"
     assert captured["extra_body"] == {"thinking": {"type": "enabled"}}
     assert captured["max_tokens"] == 16384
+
+
+@pytest.mark.asyncio
+async def test_openai_provider_respects_configured_deepseek_thinking(monkeypatch):
+    captured: dict[str, object] = {}
+
+    async def fake_create(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="ok"))],
+            usage=None,
+        )
+
+    class FakeAsyncOpenAI:
+        def __init__(self, api_key: str, base_url: str | None = None) -> None:
+            self.chat = SimpleNamespace(
+                completions=SimpleNamespace(create=fake_create),
+            )
+            self.beta = SimpleNamespace(
+                chat=SimpleNamespace(
+                    completions=SimpleNamespace(parse=fake_create),
+                ),
+            )
+            self.models = SimpleNamespace(list=lambda: fake_create())
+
+    async def passthrough_retry(func):
+        return await func()
+
+    monkeypatch.setattr("backend.llm.provider_openai.AsyncOpenAI", FakeAsyncOpenAI)
+    monkeypatch.setattr("backend.llm.provider_openai.call_with_retry", passthrough_retry)
+
+    provider = OpenAIProvider(
+        api_key="sk-test",
+        base_url="https://api.deepseek.com",
+        provider_name="deepseek",
+        deepseek_settings={
+            "thinking_enabled": False,
+            "reasoning_effort": "high",
+        },
+    )
+    response = await provider.chat(
+        messages=[],
+        model="deepseek-v4-pro",
+        temperature=0.2,
+    )
+
+    assert response.content == "ok"
+    assert captured["extra_body"] == {"thinking": {"type": "disabled"}}
+    assert "reasoning_effort" not in captured
+    assert captured["temperature"] == 0.2

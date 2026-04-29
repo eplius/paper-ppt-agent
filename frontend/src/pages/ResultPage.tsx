@@ -10,7 +10,7 @@ import { useGeneration } from "../hooks/useGeneration";
 import { useLocale } from "../i18n";
 import { fetchJobStatus, fetchPreview, fetchProjectPreview, getDownloadUrl, getDownloadUrlForOutput, isNotFoundError, reexportPresentation } from "../lib/api";
 import { translateStageStatus } from "../lib/i18nStatus";
-import type { GenerateRequestPayload, GenerationHistoryItem, JobStatus, PreviewResponse, PreviewSlide } from "../lib/types";
+import type { DeepSeekSettings, GenerateRequestPayload, GenerationHistoryItem, JobStatus, PreviewResponse, PreviewSlide } from "../lib/types";
 
 // Routing profile stored by GeneratePage so we can re-use model config here.
 const ROUTING_PROFILE_STORAGE_KEY = "paper-ppt-agent-routing-profiles-v1";
@@ -19,13 +19,14 @@ interface RoutingProfile {
   model: string;
   baseUrl: string;
   apiKey: string;
+  deepseekSettings?: DeepSeekSettings;
 }
 type RoutingProfileMap = Record<string, RoutingProfile>;
 
 function readProviderProfile(
   provider: string,
   defaults?: { model?: string; baseUrl?: string },
-): { provider: string; model: string; apiKey: string; baseUrl: string } | null {
+): { provider: string; model: string; apiKey: string; baseUrl: string; deepseekSettings?: DeepSeekSettings } | null {
   try {
     const raw = window.localStorage.getItem(ROUTING_PROFILE_STORAGE_KEY);
     if (!raw) return null;
@@ -39,6 +40,7 @@ function readProviderProfile(
       model: defaults?.model || profile.model,
       apiKey: profile.apiKey,
       baseUrl: defaults?.baseUrl || profile.baseUrl,
+      deepseekSettings: profile.deepseekSettings,
     };
   } catch {
     return null;
@@ -278,6 +280,8 @@ export function ResultPage() {
           model: profile.model,
           api_key: profile.apiKey,
           base_url: profile.baseUrl || undefined,
+          deepseek_settings:
+            profile.provider === "deepseek" ? profile.deepseekSettings : undefined,
         },
         options: fallbackOptions,
         target_pages: targetPages,

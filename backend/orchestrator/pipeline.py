@@ -48,6 +48,7 @@ class GenerationRequest:
     detail_level: str = "normal"
     timeout_seconds: int | None = None
     style_overrides: dict | None = None  # {palette: [...], font: "...", density: "..."}
+    deepseek_settings: dict | None = None
 
 
 async def run_pipeline(
@@ -65,7 +66,12 @@ async def run_pipeline(
     from backend.parser.latex_parser import LaTeXParser
     from backend.parser.pdf_parser import PDFParser
 
-    llm = create_provider(request.provider, request.api_key, base_url=request.base_url)
+    llm = create_provider(
+        request.provider,
+        request.api_key,
+        base_url=request.base_url,
+        deepseek_settings=request.deepseek_settings,
+    )
 
     # Create project workspace
     project_dir = init_project(
@@ -351,6 +357,7 @@ class RefineRequest:
     target_pages: list[int] | None = None
     allow_structure_changes: bool = False
     style_overrides: dict | None = None
+    deepseek_settings: dict | None = None
 
 
 async def run_refine_pipeline(
@@ -392,7 +399,12 @@ async def run_refine_pipeline(
     manuscript = manuscript_path.read_text(encoding="utf-8")
     design_spec = design_spec_path.read_text(encoding="utf-8")
 
-    llm = create_provider(request.provider, request.api_key, base_url=request.base_url)
+    llm = create_provider(
+        request.provider,
+        request.api_key,
+        base_url=request.base_url,
+        deepseek_settings=request.deepseek_settings,
+    )
     target_pages = sorted({page for page in (request.target_pages or []) if page > 0})
 
     refine_snapshot = set_usage_context(job_id=request.job_id, stage="refine", attempt=1)

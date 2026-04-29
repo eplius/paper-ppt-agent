@@ -12,14 +12,20 @@ import { FilePreview } from "../components/upload/FilePreview";
 import { UploadZone } from "../components/upload/UploadZone";
 import { useGeneration } from "../hooks/useGeneration";
 import { useLocale } from "../i18n";
+import type { DeepSeekSettings } from "../lib/types";
 
 const ROUTING_PROFILE_STORAGE_KEY = "paper-ppt-agent-routing-profiles-v1";
 type LanguageMode = "zh" | "en" | "custom";
+const DEFAULT_DEEPSEEK_SETTINGS: DeepSeekSettings = {
+  thinking_enabled: true,
+  reasoning_effort: "max",
+};
 
 interface RoutingProfile {
   model: string;
   baseUrl: string;
   apiKey: string;
+  deepseekSettings?: DeepSeekSettings;
 }
 
 type RoutingProfileMap = Record<string, RoutingProfile>;
@@ -80,6 +86,9 @@ export function GeneratePage() {
   const [model, setModel] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [deepSeekSettings, setDeepSeekSettings] = useState<DeepSeekSettings>(
+    DEFAULT_DEEPSEEK_SETTINGS,
+  );
   const [style, setStyle] = useState("academic");
   const [styleOverrides, setStyleOverrides] = useState<StyleOverrides>({});
   const [canvasFormat, setCanvasFormat] = useState("ppt169");
@@ -137,6 +146,7 @@ export function GeneratePage() {
       setModel("");
       setBaseUrl(saved?.baseUrl || defaults.baseUrl);
       setApiKey(saved?.apiKey || "");
+      setDeepSeekSettings(saved?.deepseekSettings ?? DEFAULT_DEEPSEEK_SETTINGS);
     }
   }, [provider, providers]);
 
@@ -153,6 +163,7 @@ export function GeneratePage() {
     setModel("");
     setBaseUrl(saved?.baseUrl || defaults.baseUrl);
     setApiKey(saved?.apiKey || "");
+    setDeepSeekSettings(saved?.deepseekSettings ?? DEFAULT_DEEPSEEK_SETTINGS);
   }, [provider, providers, selectedRunConfig?.provider, targetJobId]);
 
   useEffect(() => {
@@ -168,9 +179,10 @@ export function GeneratePage() {
       model: model.trim() || existing?.model || "",
       baseUrl,
       apiKey,
+      deepseekSettings: provider === "deepseek" ? deepSeekSettings : existing?.deepseekSettings,
     };
     writeRoutingProfiles(profiles);
-  }, [apiKey, baseUrl, model, provider, targetJobId]);
+  }, [apiKey, baseUrl, deepSeekSettings, model, provider, targetJobId]);
 
   useEffect(() => {
     if (!targetJobId || !selectedRunConfig) {
@@ -183,6 +195,7 @@ export function GeneratePage() {
     setModel(selectedRunConfig.model);
     setBaseUrl(selectedRunConfig.baseUrl ?? "");
     setApiKey(savedProfile?.apiKey ?? "");
+    setDeepSeekSettings(savedProfile?.deepseekSettings ?? DEFAULT_DEEPSEEK_SETTINGS);
     setCanvasFormat(options.canvas_format || "ppt169");
     setStyle(options.style || "academic");
     setStyleOverrides(options.style_overrides ?? {});
@@ -230,12 +243,14 @@ export function GeneratePage() {
             model={model}
             baseUrl={baseUrl}
             apiKey={apiKey}
+            deepSeekSettings={deepSeekSettings}
             onProviderChange={(nextProvider) => {
               setProvider(nextProvider);
             }}
             onModelChange={setModel}
             onBaseUrlChange={setBaseUrl}
             onApiKeyChange={setApiKey}
+            onDeepSeekSettingsChange={setDeepSeekSettings}
           />
           <StylePicker
             value={style}
@@ -279,6 +294,7 @@ export function GeneratePage() {
                 model: normalizedModel,
                 baseUrl,
                 apiKey,
+                deepseekSettings: provider === "deepseek" ? deepSeekSettings : undefined,
               };
               writeRoutingProfiles(profiles);
               const jobId = await startGeneration({
@@ -289,6 +305,7 @@ export function GeneratePage() {
                   model: normalizedModel,
                   api_key: apiKey,
                   base_url: baseUrl || undefined,
+                  deepseek_settings: provider === "deepseek" ? deepSeekSettings : undefined,
                 },
                 options: {
                   canvas_format: canvasFormat,

@@ -1,7 +1,7 @@
 import { useState } from "react";
-import type { ProviderListItem } from "../../lib/types";
+import type { DeepSeekSettings, ProviderListItem } from "../../lib/types";
 import { useLocale } from "../../i18n";
-import { Bot, Cpu, Zap, Globe, Key, Eye, EyeOff } from "lucide-react";
+import { Bot, Cpu, Zap, Globe, Key, Eye, EyeOff, BrainCircuit } from "lucide-react";
 
 interface ModelSelectorProps {
   providers: ProviderListItem[];
@@ -9,10 +9,12 @@ interface ModelSelectorProps {
   model: string;
   baseUrl: string;
   apiKey: string;
+  deepSeekSettings: DeepSeekSettings;
   onProviderChange: (provider: string) => void;
   onModelChange: (model: string) => void;
   onBaseUrlChange: (baseUrl: string) => void;
   onApiKeyChange: (apiKey: string) => void;
+  onDeepSeekSettingsChange: (settings: DeepSeekSettings) => void;
 }
 
 export function ModelSelector({
@@ -21,15 +23,18 @@ export function ModelSelector({
   model,
   baseUrl,
   apiKey,
+  deepSeekSettings,
   onProviderChange,
   onModelChange,
   onBaseUrlChange,
   onApiKeyChange,
+  onDeepSeekSettingsChange,
 }: ModelSelectorProps) {
   const selectedProvider = providers.find((item) => item.name === provider);
   const { t } = useLocale();
   const datalistId = `model-options-${provider || "default"}`;
   const [showKey, setShowKey] = useState(false);
+  const isDeepSeek = provider === "deepseek";
 
   return (
     <section className="panel">
@@ -110,6 +115,50 @@ export function ModelSelector({
           </button>
         </div>
       </label>
+
+      {isDeepSeek ? (
+        <div className="deepseek-settings">
+          <div className="panel-title-row">
+            <BrainCircuit size={15} className="panel-title-icon" />
+            <p className="panel-title">{t("model.deepseekTitle")}</p>
+          </div>
+          <p className="panel-support-text">{t("model.deepseekBody")}</p>
+
+          <label className="checkbox-row deepseek-toggle-row">
+            <input
+              type="checkbox"
+              checked={deepSeekSettings.thinking_enabled}
+              onChange={(event) =>
+                onDeepSeekSettingsChange({
+                  ...deepSeekSettings,
+                  thinking_enabled: event.target.checked,
+                })
+              }
+            />
+            <span>{t("model.deepseekThinking")}</span>
+          </label>
+
+          <label className="form-field">
+            <span>{t("model.deepseekEffort")}</span>
+            <div className="form-field-icon">
+              <BrainCircuit size={14} className="field-icon" />
+              <select
+                value={deepSeekSettings.reasoning_effort}
+                disabled={!deepSeekSettings.thinking_enabled}
+                onChange={(event) =>
+                  onDeepSeekSettingsChange({
+                    ...deepSeekSettings,
+                    reasoning_effort: event.target.value as DeepSeekSettings["reasoning_effort"],
+                  })
+                }
+              >
+                <option value="high">{t("model.deepseekEffortHigh")}</option>
+                <option value="max">{t("model.deepseekEffortMax")}</option>
+              </select>
+            </div>
+          </label>
+        </div>
+      ) : null}
     </section>
   );
 }

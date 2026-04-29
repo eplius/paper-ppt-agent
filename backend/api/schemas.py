@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -16,11 +18,17 @@ class UploadResponse(BaseModel):
     file_info: FileInfo
 
 
+class DeepSeekSettings(BaseModel):
+    thinking_enabled: bool = True
+    reasoning_effort: Literal["high", "max"] = "max"
+
+
 class ModelConfig(BaseModel):
     provider: str  # "openai", "deepseek", "anthropic", "gemini"
     model: str
     api_key: str
     base_url: str | None = None
+    deepseek_settings: DeepSeekSettings | None = None
 
 
 class StyleOverrides(BaseModel):

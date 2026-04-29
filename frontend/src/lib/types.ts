@@ -44,6 +44,11 @@ export interface GenerationOptions {
   style_overrides?: StyleOverridesPayload;
 }
 
+export interface DeepSeekSettings {
+  thinking_enabled: boolean;
+  reasoning_effort: "high" | "max";
+}
+
 export interface GenerateRequestPayload {
   session_id: string;
   instruction: string;
@@ -52,6 +57,7 @@ export interface GenerateRequestPayload {
     model: string;
     api_key: string;
     base_url?: string;
+    deepseek_settings?: DeepSeekSettings;
   };
   options: GenerationOptions;
 }
@@ -155,6 +161,7 @@ export interface RefineRequestPayload {
     model: string;
     api_key: string;
     base_url?: string;
+    deepseek_settings?: DeepSeekSettings;
   };
   options: GenerationOptions;
   target_pages?: number[];

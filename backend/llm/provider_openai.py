@@ -48,11 +48,13 @@ class OpenAIProvider(LLMProvider):
         api_key: str,
         base_url: str | None = None,
         provider_name: str = "openai",
+        deepseek_settings: dict | None = None,
     ) -> None:
         normalized_base_url = normalize_openai_base_url(base_url)
         self._client = AsyncOpenAI(api_key=api_key, base_url=normalized_base_url)
         self._provider_name = provider_name
         self._base_url = (normalized_base_url or "").rstrip("/")
+        self._deepseek_settings = deepseek_settings
 
     def _is_deepseek_request(self, model: str | None = None) -> bool:
         return (
@@ -74,6 +76,7 @@ class OpenAIProvider(LLMProvider):
         stream: bool = False,
     ) -> dict:
         normalized_max_tokens = self._normalize_max_tokens(model, max_tokens)
+        is_deepseek = self._is_deepseek_request(model)
         kwargs: dict = {
             "model": model,
             "messages": self._convert_messages(messages),
@@ -81,12 +84,33 @@ class OpenAIProvider(LLMProvider):
         }
         if normalized_max_tokens:
             kwargs["max_tokens"] = normalized_max_tokens
-        if self._is_deepseek_request(model) and model == "deepseek-v4-pro":
-            kwargs["reasoning_effort"] = "max"
-            kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
+        if is_deepseek:
+            self._apply_deepseek_thinking_kwargs(kwargs, model)
         if stream:
             kwargs["stream"] = True
         return kwargs
+
+    def _apply_deepseek_thinking_kwargs(self, kwargs: dict, model: str) -> None:
+        settings = self._deepseek_settings
+        if settings is None:
+            if model != "deepseek-v4-pro":
+                return
+            thinking_enabled = True
+            reasoning_effort = "max"
+        else:
+            thinking_enabled = bool(settings.get("thinking_enabled", True))
+            reasoning_effort = str(settings.get("reasoning_effort") or "max")
+            if reasoning_effort not in {"high", "max"}:
+                reasoning_effort = "max"
+
+        kwargs["extra_body"] = {
+            "thinking": {"type": "enabled" if thinking_enabled else "disabled"}
+        }
+        if thinking_enabled:
+            kwargs["reasoning_effort"] = reasoning_effort
+            # DeepSeek thinking mode ignores sampling params; omit them to
+            # keep the request aligned with the documented API contract.
+            kwargs.pop("temperature", None)
 
     def _convert_messages(self, messages: list[LLMMessage]) -> list[dict]:
         """Convert LLMMessage list to OpenAI message format."""
@@ -223,18 +247,18 @@ class OpenAIProvider(LLMProvider):
             display_name="OpenAI",
             models=[
                 ModelInfo(
-                    id="gpt-5.4",
-                    display_name="GPT-5.4",
+                    id="gpt-5.5",
+                    display_name="GPT-5.5",
                     supports_vision=True,
                     supports_structured_output=True,
                     context_window=400000,
                 ),
                 ModelInfo(
-                    id="gpt-5.3",
-                    display_name="GPT-5.3",
+                    id="gpt-5.4",
+                    display_name="GPT-5.4",
                     supports_vision=True,
                     supports_structured_output=True,
-                    context_window=200000,
+                    context_window=400000,
                 ),
             ],
         )

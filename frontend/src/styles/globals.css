@@ -1045,6 +1045,23 @@ html[lang="zh-CN"] .panel-title {
   margin-top: 0;
 }
 
+.deepseek-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 0.9rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--line);
+}
+
+.deepseek-settings .panel-support-text {
+  margin-top: 0;
+}
+
+.deepseek-toggle-row {
+  min-height: auto;
+}
+
 .form-field input:focus,
 .form-field select:focus,
 .form-field textarea:focus {

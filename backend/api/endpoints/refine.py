@@ -182,6 +182,12 @@ async def refine_presentation(request: RefineRequest) -> RefineResponse:
             if options.style_overrides
             else None
         ),
+        deepseek_settings=(
+            request.model_settings.deepseek_settings.model_dump()
+            if request.model_settings.provider == "deepseek"
+            and request.model_settings.deepseek_settings
+            else None
+        ),
     )
 
     task = asyncio.create_task(_run_refine_job(job.id, pipeline_request))
