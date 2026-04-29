@@ -24,11 +24,13 @@ A local tool for generating editable PowerPoint decks from academic papers. It s
   - DeepSeek
   - Anthropic
   - Gemini
+  - Custom BaseURL-compatible APIs. Model quality has a significant impact on generation quality; recommended models are `GPT-5.5` and `Gemini 3.1 Pro`.
 
 ## Quick Start
 
-1. Copy `.env.example` to `.env` if you want backend defaults
-2. Start the app directly
+### Windows
+
+1. Start the app directly
 
 ```powershell
 .\start-dev.bat
@@ -36,27 +38,33 @@ A local tool for generating editable PowerPoint decks from academic papers. It s
 
 OR
 
-3. Install backend dependencies
+2. Install backend dependencies
 
 ```powershell
 uv sync --locked
 ```
 
-4. Install frontend dependencies
+3. Install frontend dependencies
 
 ```powershell
 cd frontend
 npm install
 ```
 
-5. Start the app
+4. Start the app
 
 ```powershell
 cd ..
 .\start-dev.bat
 ```
 
-6. Open
+### Linux
+
+```bash
+sh start-dev.sh
+```
+
+Open:
 
 - Backend: [http://127.0.0.1:8000](http://127.0.0.1:8000)
 - Frontend: [http://127.0.0.1:5173](http://127.0.0.1:5173)
@@ -74,21 +82,6 @@ Frontend:
 ```powershell
 cd frontend
 npm run dev -- --host 127.0.0.1 --port 5173 --strictPort
-```
-
-## Tests
-
-Backend tests:
-
-```powershell
-.\.venv\Scripts\python -m pytest -q
-```
-
-Frontend production build:
-
-```powershell
-cd frontend
-npm run build
 ```
 
 ## Acknowledgements and References

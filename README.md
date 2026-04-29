@@ -24,12 +24,13 @@
   - DeepSeek
   - Anthropic
   - Gemini
-  - 自定义BaseURL接口兼容，模型会显著影响生成效果
+  - 自定义 BaseURL 接口兼容，模型会显著影响生成效果，推荐 `GPT-5.5` 和 `Gemini 3.1 Pro`
 
 ## 快速开始
 
-1. 如需后端默认配置，可将 `.env.example` 复制为 `.env`
-2. 直接启动项目
+### Windows
+
+1. 直接启动项目
 
 ```powershell
 .\start-dev.bat
@@ -37,27 +38,33 @@
 
 或
 
-3. 安装后端依赖
+2. 安装后端依赖
 
 ```powershell
 uv sync --locked
 ```
 
-4. 安装前端依赖
+3. 安装前端依赖
 
 ```powershell
 cd frontend
 npm install
 ```
 
-5. 启动项目
+4. 启动项目
 
 ```powershell
 cd ..
 .\start-dev.bat
 ```
 
-6. 打开以下地址
+### Linux
+
+```bash
+sh start-dev.sh
+```
+
+打开以下地址：
 
 - 后端: [http://127.0.0.1:8000](http://127.0.0.1:8000)
 - 前端: [http://127.0.0.1:5173](http://127.0.0.1:5173)
@@ -75,21 +82,6 @@ uv run python -m uvicorn backend.app:app --host 127.0.0.1 --port 8000 --reload -
 ```powershell
 cd frontend
 npm run dev -- --host 127.0.0.1 --port 5173 --strictPort
-```
-
-## 测试
-
-后端测试：
-
-```powershell
-.\.venv\Scripts\python -m pytest -q
-```
-
-前端生产构建：
-
-```powershell
-cd frontend
-npm run build
 ```
 
 ## 参考与致谢
