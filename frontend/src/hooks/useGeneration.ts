@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import { cancelJob, fetchJobStatus, fetchPreview, fetchProjectPreview, fetchProviders, generatePresentation, refinePresentation, uploadPaper } from "../lib/api";
+import { cancelJob, fetchJobStatus, fetchPreview, fetchProjectPreview, fetchProviders, generatePresentation, isNotFoundError, refinePresentation, uploadPaper } from "../lib/api";
 import type {
   GenerateRequestPayload,
   GenerationOptions,
@@ -21,6 +21,40 @@ const HISTORY_LIMIT = 8;
 const LEGACY_GENERATION_STORAGE_KEY = "paper-ppt-agent-generation-v1";
 const GENERATION_STORAGE_KEY = "paper-ppt-agent-generation-v2";
 const PERSISTED_LOG_LIMIT = 200;
+const LIVE_JOB_STORAGE_PREFIX = "paper-ppt-live-job:";
+
+/** Per-job seq deduper. Replays after reconnect can re-deliver events
+ *  the client already processed; we drop anything with seq <= the last
+ *  one we've applied for that job. */
+const seenSeqByJob = new Map<string, number>();
+
+function shouldAcceptEventSeq(jobId: string, seq: number | undefined): boolean {
+  if (typeof seq !== "number" || seq <= 0) return true;
+  const last = seenSeqByJob.get(jobId) ?? 0;
+  if (seq <= last) return false;
+  seenSeqByJob.set(jobId, seq);
+  return true;
+}
+
+function clearOrphanedLiveMarkers(activeJobIds: Set<string>) {
+  if (typeof window === "undefined") return;
+  try {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < window.sessionStorage.length; i++) {
+      const key = window.sessionStorage.key(i);
+      if (!key || !key.startsWith(LIVE_JOB_STORAGE_PREFIX)) continue;
+      const jobId = key.slice(LIVE_JOB_STORAGE_PREFIX.length);
+      if (!activeJobIds.has(jobId)) {
+        keysToRemove.push(key);
+      }
+    }
+    for (const key of keysToRemove) {
+      window.sessionStorage.removeItem(key);
+    }
+  } catch {
+    // ignore storage errors (private mode, full quota, etc.)
+  }
+}
 
 interface RunConfigSnapshot {
   provider: string;
@@ -354,7 +388,7 @@ export const useGeneration = create<GenerationState>()(
             [response.job_id]: run,
           },
         }));
-        sessionStorage.setItem(`paper-ppt-live-job:${response.job_id}`, "1");
+        sessionStorage.setItem(`${LIVE_JOB_STORAGE_PREFIX}${response.job_id}`, "1");
         get().syncHistory(response.job_id);
         return response.job_id;
       },
@@ -398,7 +432,7 @@ export const useGeneration = create<GenerationState>()(
             [response.job_id]: run,
           },
         }));
-        sessionStorage.setItem(`paper-ppt-live-job:${response.job_id}`, "1");
+        sessionStorage.setItem(`${LIVE_JOB_STORAGE_PREFIX}${response.job_id}`, "1");
         get().syncHistory(response.job_id);
         return response.job_id;
       },
@@ -440,6 +474,10 @@ export const useGeneration = create<GenerationState>()(
         const socket = openJobSocket(
           jobId,
           (event) => {
+            const seq = (event as { seq?: number }).seq;
+            if (!shouldAcceptEventSeq(jobId, seq)) {
+              return;
+            }
             set((state) => {
               const currentRun = state.runs[jobId] ?? createRunSnapshot(jobId);
               const logLine = formatLog(event);
@@ -556,6 +594,17 @@ export const useGeneration = create<GenerationState>()(
                 socketsByJob: nextSockets,
               };
             }),
+          () =>
+            // We've exhausted reconnect attempts. Surface a global error
+            // so the UI banner explains what happened — the user can
+            // refresh to retry, or open the run from history once the
+            // backend is reachable again.
+            set((state) => ({
+              ...state,
+              error:
+                "Lost connection to the server and could not reconnect. " +
+                "Refresh the page or check your network and try again.",
+            })),
         );
 
         set((state) => ({
@@ -663,6 +712,38 @@ export const useGeneration = create<GenerationState>()(
           get().connect(currentJobId);
           return true;
         } catch (error) {
+          // 404 means the backend no longer knows this job — most often
+          // because the process restarted between page loads. Detach the
+          // local "active" pointer and surface a soft hint instead of a
+          // raw error: history still has the entry, the user can choose
+          // to remove it or start a new run.
+          if (isNotFoundError(error)) {
+            set((state) => {
+              const isCurrent = state.jobId === currentJobId;
+              try {
+                sessionStorage.removeItem(`${LIVE_JOB_STORAGE_PREFIX}${currentJobId}`);
+              } catch {
+                /* noop */
+              }
+              return {
+                ...(isCurrent
+                  ? {
+                      jobId: undefined,
+                      job: undefined,
+                      slides: [],
+                      logs: [],
+                      selectedSlide: undefined,
+                      result: undefined,
+                      currentRunConfig: undefined,
+                    }
+                  : {}),
+                activeJobId: state.activeJobId === currentJobId ? undefined : state.activeJobId,
+                connectionStatus: "disconnected",
+                error: undefined,
+              };
+            });
+            return false;
+          }
           set({
             connectionStatus: "disconnected",
             error: error instanceof Error ? error.message : "Failed to resume generation",
@@ -738,21 +819,41 @@ export const useGeneration = create<GenerationState>()(
               : {}),
           };
         });
-        sessionStorage.removeItem(`paper-ppt-live-job:${jobId}`);
+        sessionStorage.removeItem(`${LIVE_JOB_STORAGE_PREFIX}${jobId}`);
+        seenSeqByJob.delete(jobId);
       },
       reset() {
-        set({
-          uploadSession: undefined,
-          jobId: undefined,
-          job: undefined,
-          slides: [],
-          logs: [],
-          selectedSlide: undefined,
-          connectionStatus: "disconnected",
-          error: undefined,
-          result: undefined,
-          activeJobId: undefined,
-          currentRunConfig: undefined,
+        const { jobId, socketsByJob } = get();
+        if (jobId) {
+          // Tear down any live socket for the run we're about to abandon
+          // so it doesn't keep mutating store state in the background.
+          socketsByJob[jobId]?.close();
+          try {
+            sessionStorage.removeItem(`${LIVE_JOB_STORAGE_PREFIX}${jobId}`);
+          } catch {
+            /* noop */
+          }
+          seenSeqByJob.delete(jobId);
+        }
+        set((state) => {
+          const nextSockets = { ...state.socketsByJob };
+          if (jobId) {
+            delete nextSockets[jobId];
+          }
+          return {
+            uploadSession: undefined,
+            jobId: undefined,
+            job: undefined,
+            slides: [],
+            logs: [],
+            selectedSlide: undefined,
+            connectionStatus: "disconnected",
+            error: undefined,
+            result: undefined,
+            activeJobId: undefined,
+            currentRunConfig: undefined,
+            socketsByJob: nextSockets,
+          };
         });
       },
     }),
@@ -769,6 +870,12 @@ export const useGeneration = create<GenerationState>()(
         };
         const runs = normalizeStoredRuns(state.runs);
         const currentRun = state.jobId ? runs[state.jobId] : undefined;
+
+        // Drop ``paper-ppt-live-job:*`` markers for jobs that no longer
+        // appear in our persisted run map — they accumulated from prior
+        // sessions where the page was killed before cleanup ran.
+        clearOrphanedLiveMarkers(new Set(Object.keys(runs)));
+
         return {
           ...state,
           slides: currentRun?.slides ?? [],

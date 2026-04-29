@@ -99,6 +99,48 @@ def clone_project_for_refine(
     return target_dir
 
 
+def cleanup_project_dir(project_dir: Path | str | None) -> bool:
+    """Best-effort delete of an abandoned project directory.
+
+    Used when a job is cancelled or fails before producing any deliverable
+    so the workspace doesn't accumulate orphaned partial runs. Returns
+    ``True`` if the directory was deleted, ``False`` otherwise (missing,
+    permission denied, etc.). Never raises.
+    """
+    if not project_dir:
+        return False
+    path = Path(project_dir)
+    if not path.exists() or not path.is_dir():
+        return False
+    try:
+        shutil.rmtree(path, ignore_errors=False)
+        return True
+    except OSError:
+        # Fall back to ignore_errors so we never block the cancel path
+        # on a stuck file handle (Windows AV scanners, open SVG previews,
+        # etc.).
+        shutil.rmtree(path, ignore_errors=True)
+        return not path.exists()
+
+
+def has_deliverable(project_dir: Path | str | None) -> bool:
+    """True if *project_dir* contains at least one exported PPTX file.
+
+    Cancel paths use this to decide whether to keep partial work or scrub
+    the workspace.
+    """
+    if not project_dir:
+        return False
+    path = Path(project_dir)
+    exports = path / "exports"
+    if not exports.exists():
+        return False
+    try:
+        return any(exports.glob("*.pptx"))
+    except OSError:
+        return False
+
+
 def prepare_for_finalize(project_dir: Path) -> None:
     """Copy svg_output/ to svg_final/ in preparation for post-processing."""
     svg_output = project_dir / "svg_output"

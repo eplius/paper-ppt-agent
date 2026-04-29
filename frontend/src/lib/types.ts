@@ -129,7 +129,23 @@ export interface JobEvent {
   slides_completed: number;
   total_slides: number;
   data: Record<string, unknown>;
+  // Server-assigned monotonic id within a job. Used by the WebSocket
+  // client to dedupe replayed events and to ask for replay starting from
+  // ``since_seq`` after a reconnect. Older servers may omit this field.
+  seq?: number;
+  ts?: number;
+  // Snapshot frames carry the latest known seq so the client can ask for
+  // replays from the right point even when no event has been delivered yet.
+  last_seq?: number;
 }
+
+/** Heartbeat ping emitted by the server every ~20s of silence. */
+export interface JobPingEvent {
+  type: "ping";
+  ts: number;
+}
+
+export type JobSocketMessage = JobEvent | JobPingEvent;
 
 export interface RefineRequestPayload {
   job_id: string;

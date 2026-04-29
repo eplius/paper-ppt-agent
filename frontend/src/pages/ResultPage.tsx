@@ -8,7 +8,7 @@ import { ProgressPanel } from "../components/progress/ProgressPanel";
 import { VersionHistory } from "../components/result/VersionHistory";
 import { useGeneration } from "../hooks/useGeneration";
 import { useLocale } from "../i18n";
-import { fetchJobStatus, fetchPreview, fetchProjectPreview, getDownloadUrl, getDownloadUrlForOutput, reexportPresentation } from "../lib/api";
+import { fetchJobStatus, fetchPreview, fetchProjectPreview, getDownloadUrl, getDownloadUrlForOutput, isNotFoundError, reexportPresentation } from "../lib/api";
 import { translateStageStatus } from "../lib/i18nStatus";
 import type { GenerateRequestPayload, GenerationHistoryItem, JobStatus, PreviewResponse, PreviewSlide } from "../lib/types";
 
@@ -156,7 +156,19 @@ export function ResultPage() {
         setJob(entry ? buildStoredJob(entry) : null);
         setSlides([]);
         setSelectedSlide(undefined);
-        setLoadError(error instanceof Error ? error.message : "Failed to load result.");
+        // A 404 from the backend means the job is gone (server restart,
+        // session GC, or someone shared a stale URL). Use a friendlier
+        // message that points the user to the next step instead of
+        // dumping the raw error string.
+        if (isNotFoundError(error)) {
+          setLoadError(
+            entry
+              ? "This run is no longer available on the server, but its history record was kept. Start a new run to regenerate."
+              : "This job was not found. It may have been removed or never existed on this server.",
+          );
+        } else {
+          setLoadError(error instanceof Error ? error.message : "Failed to load result.");
+        }
       }
     }
 

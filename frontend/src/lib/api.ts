@@ -69,11 +69,31 @@ export interface UsageSnapshotResponse {
   recent: UsageRecordResponse[];
 }
 
+/**
+ * Error thrown for non-2xx HTTP responses.
+ *
+ * Carries the HTTP ``status`` so callers can distinguish "the resource
+ * is gone" (404 — likely server restart or job GC) from transient
+ * network/server errors and degrade the UI accordingly.
+ */
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
+export function isNotFoundError(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 404;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, init);
   if (!response.ok) {
     const detail = await response.text();
-    throw new Error(detail || `Request failed: ${response.status}`);
+    throw new ApiError(detail || `Request failed: ${response.status}`, response.status);
   }
   if (response.status === 204) {
     return undefined as T;

@@ -25,6 +25,24 @@ async def _iterate_refine_pipeline(job_id: str, request: Any) -> None:
             session_manager.record_event(job_id, payload, **updates)
 
 
+def _cleanup_refine_workspace(job_id: str) -> None:
+    """Delete a refine workspace clone if it produced no deliverable.
+
+    Refine jobs run in an isolated copy of the parent project (created by
+    ``clone_project_for_refine``) so cleaning it up never affects the
+    original successful generation.
+    """
+    from backend.generator.project_manager import cleanup_project_dir, has_deliverable
+
+    job = session_manager.get_job(job_id)
+    if job is None or not job.project_dir:
+        return
+    if has_deliverable(job.project_dir):
+        return
+    cleanup_project_dir(job.project_dir)
+    session_manager.update_job(job_id, project_dir=None)
+
+
 async def _run_refine_job(job_id: str, request: Any) -> None:
     from backend.orchestrator.pipeline import ProgressEvent
 
@@ -33,6 +51,7 @@ async def _run_refine_job(job_id: str, request: Any) -> None:
         return
 
     timeout = getattr(request, "timeout_seconds", None)
+    cleanup_needed = False
     try:
         if timeout and timeout > 0:
             await asyncio.wait_for(_iterate_refine_pipeline(job_id, request), timeout=timeout)
@@ -46,8 +65,10 @@ async def _run_refine_job(job_id: str, request: Any) -> None:
         error_event = ProgressEvent("error", "error", msg, current_job.progress)
         for payload, updates in payloads_from_progress_event(job_id, current_job, error_event):
             session_manager.record_event(job_id, payload, **updates)
+        cleanup_needed = True
     except asyncio.CancelledError:
         session_manager.mark_job_cancelled(job_id, "Refine job cancelled")
+        cleanup_needed = True
         raise
     except Exception as exc:
         current_job = session_manager.get_job(job_id)
@@ -58,6 +79,10 @@ async def _run_refine_job(job_id: str, request: Any) -> None:
             job_id, current_job, error_event
         ):
             session_manager.record_event(job_id, payload, **updates)
+        cleanup_needed = True
+    finally:
+        if cleanup_needed:
+            _cleanup_refine_workspace(job_id)
 
 
 @router.post("/refine", response_model=RefineResponse)

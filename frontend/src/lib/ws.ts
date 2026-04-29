@@ -1,10 +1,12 @@
-import type { JobEvent } from "./types";
+import type { JobEvent, JobSocketMessage } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? window.location.origin;
 
 export interface ReconnectingSocket {
   close: () => void;
   isOpen: () => boolean;
+  /** Last seq this socket has acknowledged from the server. */
+  lastSeq: () => number;
 }
 
 interface ReconnectOptions {
@@ -14,47 +16,128 @@ interface ReconnectOptions {
   baseDelay?: number;
   /** Maximum backoff delay between attempts. */
   maxDelay?: number;
+  /**
+   * If we go this long with no message (including server pings), assume
+   * the connection is dead even if the browser hasn't fired ``onclose``
+   * yet — common with some reverse proxies — and force a reconnect.
+   */
+  staleTimeoutMs?: number;
+  /** Called when the client gives up reconnecting after maxAttempts. */
+  onGiveUp?: () => void;
 }
 
-function toWsUrl(path: string): string {
+function toWsUrl(path: string, params?: Record<string, string>): string {
   const url = new URL(path, API_BASE);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  if (params) {
+    for (const [key, value] of Object.entries(params)) {
+      url.searchParams.set(key, value);
+    }
+  }
   return url.toString();
 }
 
-function createReconnectingSocket<TEvent>(
-  url: string,
-  onEvent: (event: TEvent) => void,
-  onOpen?: () => void,
-  onClose?: (ev: CloseEvent | null) => void,
-  options: ReconnectOptions = {},
-): ReconnectingSocket {
-  const { maxAttempts = 0, baseDelay = 1000, maxDelay = 15000 } = options;
+interface CreateSocketArgs<TEvent> {
+  /** Build the URL each connection attempt — receives the current ``lastSeq``. */
+  buildUrl: (lastSeq: number) => string;
+  onEvent: (event: TEvent) => void;
+  onOpen?: () => void;
+  onClose?: (ev: CloseEvent | null) => void;
+  /** Extract the seq from a message so the client can ack & replay. */
+  extractSeq?: (event: TEvent) => number | undefined;
+  /** Return true if this message should NOT be forwarded to ``onEvent``. */
+  isInternal?: (raw: unknown) => boolean;
+  options?: ReconnectOptions;
+}
+
+function createReconnectingSocket<TEvent>({
+  buildUrl,
+  onEvent,
+  onOpen,
+  onClose,
+  extractSeq,
+  isInternal,
+  options = {},
+}: CreateSocketArgs<TEvent>): ReconnectingSocket {
+  const {
+    maxAttempts = 12,
+    baseDelay = 1000,
+    maxDelay = 15000,
+    staleTimeoutMs = 60_000,
+    onGiveUp,
+  } = options;
   let attempt = 0;
   let closedByUser = false;
   let socket: WebSocket | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let staleTimer: ReturnType<typeof setTimeout> | null = null;
+  let lastSeq = 0;
+
+  const armStaleTimer = () => {
+    if (staleTimer) clearTimeout(staleTimer);
+    staleTimer = setTimeout(() => {
+      // Force a reconnect — the server has been silent for too long.
+      try {
+        socket?.close(4000, "stale");
+      } catch {
+        /* noop */
+      }
+    }, staleTimeoutMs);
+  };
+
+  const clearTimers = () => {
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    if (staleTimer) {
+      clearTimeout(staleTimer);
+      staleTimer = null;
+    }
+  };
 
   const connect = () => {
-    socket = new WebSocket(url);
+    socket = new WebSocket(buildUrl(lastSeq));
 
     socket.onopen = () => {
       attempt = 0;
+      armStaleTimer();
       onOpen?.();
     };
 
     socket.onmessage = (message) => {
+      armStaleTimer();
+      let parsed: unknown;
       try {
-        onEvent(JSON.parse(message.data) as TEvent);
+        parsed = JSON.parse(message.data);
       } catch {
-        // Ignore malformed payloads.
+        return;
       }
+      if (isInternal && isInternal(parsed)) {
+        return;
+      }
+      const event = parsed as TEvent;
+      const seq = extractSeq?.(event);
+      if (typeof seq === "number" && seq > lastSeq) {
+        lastSeq = seq;
+      }
+      onEvent(event);
     };
 
     socket.onclose = (ev) => {
+      if (staleTimer) {
+        clearTimeout(staleTimer);
+        staleTimer = null;
+      }
       onClose?.(ev);
       if (closedByUser) return;
-      if (maxAttempts > 0 && attempt >= maxAttempts) return;
+      // Clean closes (1000) typically mean the server is done with us —
+      // e.g. the job reached terminal state. Don't reconnect.
+      if (ev?.code === 1000) return;
+      if (maxAttempts > 0 && attempt >= maxAttempts) {
+        onGiveUp?.();
+        return;
+      }
       const delay = Math.min(
         maxDelay,
         baseDelay * 2 ** attempt * (0.5 + Math.random() * 0.5),
@@ -78,10 +161,7 @@ function createReconnectingSocket<TEvent>(
   return {
     close: () => {
       closedByUser = true;
-      if (reconnectTimer) {
-        clearTimeout(reconnectTimer);
-        reconnectTimer = null;
-      }
+      clearTimers();
       try {
         socket?.close();
       } catch {
@@ -89,6 +169,7 @@ function createReconnectingSocket<TEvent>(
       }
     },
     isOpen: () => socket?.readyState === WebSocket.OPEN,
+    lastSeq: () => lastSeq,
   };
 }
 
@@ -97,13 +178,30 @@ export function openJobSocket(
   onEvent: (event: JobEvent) => void,
   onOpen?: () => void,
   onClose?: () => void,
+  onGiveUp?: () => void,
 ): ReconnectingSocket {
-  return createReconnectingSocket<JobEvent>(
-    toWsUrl(`/ws/${jobId}`),
+  return createReconnectingSocket<JobEvent>({
+    buildUrl: (lastSeq) =>
+      toWsUrl(`/ws/${jobId}`, lastSeq > 0 ? { since_seq: String(lastSeq) } : undefined),
     onEvent,
     onOpen,
-    () => onClose?.(),
-  );
+    onClose: () => onClose?.(),
+    extractSeq: (event) => {
+      const seq = (event as JobEvent & { seq?: number; last_seq?: number }).seq;
+      if (typeof seq === "number") return seq;
+      // Snapshot frames carry the latest known seq so we can resume from
+      // it even before a real progress event has been delivered.
+      const lastFromSnapshot = (event as JobEvent & { last_seq?: number }).last_seq;
+      if (typeof lastFromSnapshot === "number") return lastFromSnapshot;
+      return undefined;
+    },
+    isInternal: (raw) => {
+      // Drop server pings — they exist purely to keep the socket alive
+      // and shouldn't be forwarded to UI handlers.
+      return Boolean(raw && typeof raw === "object" && (raw as { type?: string }).type === "ping");
+    },
+    options: { onGiveUp },
+  });
 }
 
 export interface UsageEventPayload {
@@ -118,10 +216,12 @@ export function openUsageSocket(
   onOpen?: () => void,
   onClose?: () => void,
 ): ReconnectingSocket {
-  return createReconnectingSocket<UsageEventPayload>(
-    toWsUrl("/api/usage/stream"),
+  return createReconnectingSocket<UsageEventPayload>({
+    buildUrl: () => toWsUrl("/api/usage/stream"),
     onEvent,
     onOpen,
-    () => onClose?.(),
-  );
+    onClose: () => onClose?.(),
+  });
 }
+
+export type { JobSocketMessage };

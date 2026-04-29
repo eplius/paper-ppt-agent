@@ -5,12 +5,18 @@ from __future__ import annotations
 import asyncio
 import json
 import shutil
+import time
 import uuid
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
 from backend.config import settings
+
+
+# Maximum number of recent events kept on disk per job, used for replay
+# when a websocket reconnects after a transient drop.
+EVENT_RING_SIZE = 256
 
 
 @dataclass
@@ -50,7 +56,11 @@ class Job:
     language: str | None = None
     detail_level: str | None = None
     instruction: str | None = None
+    # Bounded ring buffer of recent events with monotonically increasing
+    # ``seq`` ids. Persisted to disk so a reconnecting client can ask for
+    # everything after its last seen seq.
     events: list[dict] = field(default_factory=list)
+    last_seq: int = 0
 
 
 class SessionManager:
@@ -63,6 +73,7 @@ class SessionManager:
         self._ws_queues: dict[str, list[asyncio.Queue]] = {}
         self._tasks: dict[str, asyncio.Task[Any]] = {}
         self._load_state()
+        self._mark_orphaned_running_jobs()
 
     def create_session(
         self,
@@ -100,20 +111,12 @@ class SessionManager:
         feedback: str,
         project_dir: str | None = None,
     ) -> Job | None:
-        """Create a refine job derived from *parent_job_id*.
-
-        The new job inherits the parent's feedback history and model settings.
-        ``project_dir`` may override the parent's workspace so refine jobs can
-        run in isolated clones instead of mutating the same directory.
-
-        Returns None if the parent job or its project_dir cannot be found.
-        """
+        """Create a refine job derived from *parent_job_id*."""
         parent = self._jobs.get(parent_job_id)
         if parent is None or not parent.project_dir:
             return None
 
         job_id = uuid.uuid4().hex[:12]
-        # Build cumulative history: parent's history + new feedback
         history = list(parent.feedback_history) + [feedback]
 
         job = Job(
@@ -137,6 +140,11 @@ class SessionManager:
 
     def get_job(self, job_id: str) -> Job | None:
         return self._jobs.get(job_id)
+
+    def is_job_running(self, job_id: str) -> bool:
+        """True if there is a live asyncio task for *job_id*."""
+        task = self._tasks.get(job_id)
+        return bool(task and not task.done())
 
     def register_task(self, job_id: str, task: asyncio.Task[Any]) -> None:
         self._tasks[job_id] = task
@@ -183,6 +191,34 @@ class SessionManager:
             error=None,
         )
 
+    def mark_job_interrupted(self, job_id: str, message: str = "Job interrupted by server restart") -> None:
+        """Mark a job that was running before the server restarted.
+
+        The asyncio task is gone forever; surface this to the client as an
+        error so the UI doesn't spin indefinitely.
+        """
+        job = self._jobs.get(job_id)
+        if not job:
+            return
+        event = {
+            "type": "error",
+            "job_id": job_id,
+            "stage": "error",
+            "status": "error",
+            "message": message,
+            "progress": job.progress,
+            "slides_completed": job.slides_completed,
+            "total_slides": job.total_slides,
+            "data": {"error": message},
+        }
+        self.record_event(
+            job_id,
+            event,
+            status="error",
+            message=message,
+            error=message,
+        )
+
     def update_job(self, job_id: str, **kwargs: Any) -> None:
         job = self._jobs.get(job_id)
         if not job:
@@ -204,12 +240,32 @@ class SessionManager:
             for key, value in job_updates.items():
                 if hasattr(job, key):
                     setattr(job, key, value)
+
+        # Stamp event with a monotonic sequence id and timestamp so the
+        # client can ack and ask for replay starting after any seq.
+        job.last_seq += 1
+        event = dict(event)
+        event["seq"] = job.last_seq
+        event["ts"] = time.time()
+
         job.events.append(event)
+        # Cap memory: keep only the most recent ``EVENT_RING_SIZE`` events.
+        if len(job.events) > EVENT_RING_SIZE:
+            job.events = job.events[-EVENT_RING_SIZE:]
         self._persist_state()
 
         if job_id in self._ws_queues:
             for queue in self._ws_queues[job_id]:
                 queue.put_nowait(event)
+
+    def get_events_after(self, job_id: str, since_seq: int) -> list[dict]:
+        """Return all retained events with seq > *since_seq*, in order."""
+        job = self._jobs.get(job_id)
+        if not job:
+            return []
+        if since_seq <= 0:
+            return list(job.events)
+        return [ev for ev in job.events if int(ev.get("seq", 0)) > since_seq]
 
     def subscribe_ws(self, job_id: str) -> asyncio.Queue:
         """Subscribe to WebSocket events for a job."""
@@ -241,6 +297,27 @@ class SessionManager:
         self._ws_queues.clear()
         self._tasks.clear()
         self._persist_state()
+
+    def _mark_orphaned_running_jobs(self) -> None:
+        """After process restart, any job left in a non-terminal state
+        cannot have a live asyncio task — its work was lost. Mark such
+        jobs as ``error`` so the UI stops polling for progress."""
+        terminal = {"complete", "error", "cancelled"}
+        running_states = {"pending", "parsing", "research", "strategy",
+                          "generation", "postprocess", "export", "refine"}
+        changed = False
+        for job in self._jobs.values():
+            if job.status in terminal:
+                continue
+            if job.status in running_states or job.status not in terminal:
+                job.status = "error"
+                if not job.error:
+                    job.error = "Server restarted while this job was running. Please retry."
+                if not job.message:
+                    job.message = job.error
+                changed = True
+        if changed:
+            self._persist_state()
 
     def _persist_state(self) -> None:
         self._state_file.parent.mkdir(parents=True, exist_ok=True)
@@ -278,6 +355,11 @@ class SessionManager:
 
         for raw_job in payload.get("jobs", []):
             try:
+                events_raw = raw_job.get("events") or []
+                events: list[dict] = [ev for ev in events_raw if isinstance(ev, dict)]
+                last_seq = int(raw_job.get("last_seq", 0) or 0)
+                if not last_seq and events:
+                    last_seq = max(int(ev.get("seq", 0) or 0) for ev in events)
                 job = Job(
                     id=str(raw_job["id"]),
                     session_id=str(raw_job["session_id"]),
@@ -299,6 +381,8 @@ class SessionManager:
                     language=raw_job.get("language"),
                     detail_level=raw_job.get("detail_level"),
                     instruction=raw_job.get("instruction"),
+                    events=events[-EVENT_RING_SIZE:],
+                    last_seq=last_seq,
                 )
             except (KeyError, TypeError, ValueError):
                 continue
@@ -317,7 +401,10 @@ class SessionManager:
     @staticmethod
     def _serialize_job(job: Job) -> dict[str, Any]:
         payload = asdict(job)
-        payload["events"] = []
+        # Persist a bounded slice of recent events so reconnecting clients
+        # can replay any frames they missed during the disconnect.
+        payload["events"] = list(job.events[-EVENT_RING_SIZE:])
+        payload["last_seq"] = job.last_seq
         return payload
 
 
