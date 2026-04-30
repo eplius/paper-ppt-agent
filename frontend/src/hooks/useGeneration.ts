@@ -75,6 +75,7 @@ interface RunSnapshot {
   result?: PreviewResponse;
   currentRunConfig?: RunConfigSnapshot;
   connectionStatus: ConnectionStatus;
+  lastSeq?: number;
 }
 
 type StoredRunSnapshot = Partial<RunSnapshot> & { jobId: string };
@@ -209,6 +210,22 @@ function pickSelectedSlide(slides: PreviewSlide[], selectedSlide?: PreviewSlide)
   return slides.find((slide) => slide.index === selectedSlide.index) ?? slides[0];
 }
 
+function pickLiveSelectedSlide(
+  previousSlides: PreviewSlide[],
+  nextSlides: PreviewSlide[],
+  selectedSlide?: PreviewSlide,
+) {
+  if (!nextSlides.length) {
+    return undefined;
+  }
+  const previousLast = previousSlides[previousSlides.length - 1];
+  const nextLast = nextSlides[nextSlides.length - 1];
+  if (!selectedSlide || !previousLast || selectedSlide.index === previousLast.index) {
+    return nextLast;
+  }
+  return pickSelectedSlide(nextSlides, selectedSlide);
+}
+
 function deriveProjectDirFromOutputPath(outputPath?: string | null): string | null {
   if (!outputPath) {
     return null;
@@ -259,6 +276,7 @@ function createRunSnapshot(
     result: params?.result,
     currentRunConfig: params?.currentRunConfig,
     connectionStatus: params?.connectionStatus ?? "disconnected",
+    lastSeq: params?.lastSeq,
   };
 }
 
@@ -439,6 +457,10 @@ export const useGeneration = create<GenerationState>()(
       connect(jobId) {
         const existingSocket = get().socketsByJob[jobId];
         const existingRun = get().runs[jobId];
+        const initialSeq = Math.max(existingRun?.lastSeq ?? 0, seenSeqByJob.get(jobId) ?? 0);
+        if (initialSeq > 0) {
+          seenSeqByJob.set(jobId, initialSeq);
+        }
 
         if (existingSocket) {
           const isOpen = existingSocket.isOpen();
@@ -480,13 +502,14 @@ export const useGeneration = create<GenerationState>()(
             }
             set((state) => {
               const currentRun = state.runs[jobId] ?? createRunSnapshot(jobId);
+              const isSnapshot = typeof seq !== "number" && typeof event.last_seq === "number";
               const logLine = formatLog(event);
               let logs =
-                event.message && currentRun.logs[currentRun.logs.length - 1] !== logLine
+                !isSnapshot && event.message && !currentRun.logs.includes(logLine)
                   ? [...currentRun.logs, logLine]
                   : currentRun.logs;
               for (const extra of buildExtraLogs(event)) {
-                if (logs[logs.length - 1] !== extra) {
+                if (!isSnapshot && !logs.includes(extra)) {
                   logs = [...logs, extra];
                 }
               }
@@ -516,10 +539,14 @@ export const useGeneration = create<GenerationState>()(
                 ...currentRun,
                 job: nextJob,
                 slides,
-                selectedSlide: pickSelectedSlide(slides, currentRun.selectedSlide),
+                selectedSlide:
+                  event.type === "slide_ready"
+                    ? pickLiveSelectedSlide(currentRun.slides, slides, currentRun.selectedSlide)
+                    : pickSelectedSlide(slides, currentRun.selectedSlide),
                 logs,
                 error: event.type === "error" ? event.message : undefined,
                 connectionStatus: FINAL_JOB_STATUSES.has(nextJob.status) ? "disconnected" : currentRun.connectionStatus,
+                lastSeq: typeof seq === "number" && seq > 0 ? Math.max(currentRun.lastSeq ?? 0, seq) : currentRun.lastSeq,
               };
 
               return {
@@ -551,7 +578,7 @@ export const useGeneration = create<GenerationState>()(
                       ...currentRun,
                       result: preview,
                       slides: preview.slides,
-                      selectedSlide: pickSelectedSlide(preview.slides, currentRun.selectedSlide),
+                      selectedSlide: pickLiveSelectedSlide(currentRun.slides, preview.slides, currentRun.selectedSlide),
                     };
                     return {
                       ...(state.jobId === jobId ? applyRunToCurrent(updatedRun) : {}),
@@ -582,12 +609,14 @@ export const useGeneration = create<GenerationState>()(
                 },
               };
             }),
-          () =>
+          (willReconnect) =>
             set((state) => {
               const run = state.runs[jobId] ?? createRunSnapshot(jobId);
-              const updatedRun = { ...run, connectionStatus: "disconnected" as const };
+              const updatedRun = { ...run, connectionStatus: willReconnect ? "connecting" as const : "disconnected" as const };
               const nextSockets = { ...state.socketsByJob };
-              delete nextSockets[jobId];
+              if (!willReconnect) {
+                delete nextSockets[jobId];
+              }
               return {
                 ...(state.jobId === jobId ? applyRunToCurrent(updatedRun) : {}),
                 runs: {
@@ -608,6 +637,7 @@ export const useGeneration = create<GenerationState>()(
                 "Lost connection to the server and could not reconnect. " +
                 "Refresh the page or check your network and try again.",
             })),
+          initialSeq,
         );
 
         set((state) => ({

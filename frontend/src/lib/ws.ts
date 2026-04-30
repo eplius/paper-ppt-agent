@@ -24,6 +24,8 @@ interface ReconnectOptions {
   staleTimeoutMs?: number;
   /** Called when the client gives up reconnecting after maxAttempts. */
   onGiveUp?: () => void;
+  /** Last server event seq already processed before this socket was created. */
+  initialSeq?: number;
 }
 
 function toWsUrl(path: string, params?: Record<string, string>): string {
@@ -42,7 +44,7 @@ interface CreateSocketArgs<TEvent> {
   buildUrl: (lastSeq: number) => string;
   onEvent: (event: TEvent) => void;
   onOpen?: () => void;
-  onClose?: (ev: CloseEvent | null) => void;
+  onClose?: (ev: CloseEvent | null, willReconnect: boolean) => void;
   /** Extract the seq from a message so the client can ack & replay. */
   extractSeq?: (event: TEvent) => number | undefined;
   /** Return true if this message should NOT be forwarded to ``onEvent``. */
@@ -65,13 +67,14 @@ function createReconnectingSocket<TEvent>({
     maxDelay = 15000,
     staleTimeoutMs = 60_000,
     onGiveUp,
+    initialSeq = 0,
   } = options;
   let attempt = 0;
   let closedByUser = false;
   let socket: WebSocket | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let staleTimer: ReturnType<typeof setTimeout> | null = null;
-  let lastSeq = 0;
+  let lastSeq = Math.max(0, initialSeq);
 
   const armStaleTimer = () => {
     if (staleTimer) clearTimeout(staleTimer);
@@ -129,8 +132,6 @@ function createReconnectingSocket<TEvent>({
         clearTimeout(staleTimer);
         staleTimer = null;
       }
-      onClose?.(ev);
-      if (closedByUser) return;
       // Treat clean closes as terminal:
       //   1000 — normal closure (server signalled "done")
       //   1005 — no status; browsers report this when the server closed
@@ -139,8 +140,12 @@ function createReconnectingSocket<TEvent>({
       //   1008 — policy violation; we use this for "job not found", the
       //          client must not retry
       const code = ev?.code;
-      if (code === 1000 || code === 1005 || code === 1008) return;
-      if (maxAttempts > 0 && attempt >= maxAttempts) {
+      const terminalClose = code === 1000 || code === 1005 || code === 1008;
+      const exhausted = maxAttempts > 0 && attempt >= maxAttempts;
+      const willReconnect = !closedByUser && !terminalClose && !exhausted;
+      onClose?.(ev, willReconnect);
+      if (closedByUser || terminalClose) return;
+      if (exhausted) {
         onGiveUp?.();
         return;
       }
@@ -183,15 +188,16 @@ export function openJobSocket(
   jobId: string,
   onEvent: (event: JobEvent) => void,
   onOpen?: () => void,
-  onClose?: () => void,
+  onClose?: (willReconnect: boolean) => void,
   onGiveUp?: () => void,
+  initialSeq = 0,
 ): ReconnectingSocket {
   return createReconnectingSocket<JobEvent>({
     buildUrl: (lastSeq) =>
       toWsUrl(`/ws/${jobId}`, lastSeq > 0 ? { since_seq: String(lastSeq) } : undefined),
     onEvent,
     onOpen,
-    onClose: () => onClose?.(),
+    onClose: (_ev, willReconnect) => onClose?.(willReconnect),
     extractSeq: (event) => {
       const seq = (event as JobEvent & { seq?: number; last_seq?: number }).seq;
       if (typeof seq === "number") return seq;
@@ -206,7 +212,7 @@ export function openJobSocket(
       // and shouldn't be forwarded to UI handlers.
       return Boolean(raw && typeof raw === "object" && (raw as { type?: string }).type === "ping");
     },
-    options: { onGiveUp },
+    options: { onGiveUp, initialSeq },
   });
 }
 
