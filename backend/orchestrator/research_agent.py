@@ -5,9 +5,14 @@ from __future__ import annotations
 from pathlib import Path
 
 from backend.llm import LLMMessage, LLMProvider, LLMResponse
+from backend.orchestrator.provider_guidance import (
+    deepseek_research_guidance,
+    is_deepseek_provider,
+)
 from backend.parser.paper_model import ParsedPaper
 
 PROMPT_PATH = Path(__file__).parent / "prompts" / "research.md"
+DEEPSEEK_RESEARCH_MAX_TOKENS = 24576
 
 
 def _language_guidance(language: str) -> str:
@@ -111,6 +116,10 @@ async def analyze_paper(
         f"{detail_guidance.get(detail_level, detail_guidance['normal'])}"
     )
 
+    is_deepseek = is_deepseek_provider(llm, model)
+    if is_deepseek:
+        user_parts.append("\n" + deepseek_research_guidance(detail_level))
+
     user_parts.append(
         "\n\nPlease analyze this paper and produce a slide manuscript. "
         "Separate each slide only with a standalone `---` line. Start now."
@@ -121,7 +130,12 @@ async def analyze_paper(
         LLMMessage.user("\n".join(user_parts)),
     ]
 
-    response: LLMResponse = await llm.chat(messages, model, temperature=0.5)
+    response: LLMResponse = await llm.chat(
+        messages,
+        model,
+        temperature=0.5,
+        max_tokens=DEEPSEEK_RESEARCH_MAX_TOKENS if is_deepseek else None,
+    )
     return response.content
 
 

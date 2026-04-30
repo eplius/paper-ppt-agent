@@ -18,6 +18,10 @@ from backend.generator.svg_critic import CriticConfig, CriticReport, Violation, 
 from backend.generator.visual_critic import VisualCriticConfig, visual_check
 from backend.llm import LLMMessage, LLMProvider, LLMResponse
 from backend.orchestrator.manuscript import split_manuscript_pages
+from backend.orchestrator.provider_guidance import (
+    deepseek_executor_guidance,
+    is_deepseek_provider,
+)
 from backend.usage.tracker import reset_usage_context, set_usage_context
 
 # `[[FIG:fig_007_p9_page]]` style tokens emitted by the research agent.
@@ -266,7 +270,12 @@ async def generate_svg_pages(
     svg_output_dir.mkdir(parents=True, exist_ok=True)
     used_paper_figures: dict[str, int] = {}
 
-    extra_block = f"\n\n{extra_instruction}" if extra_instruction else ""
+    extra_sections = []
+    if extra_instruction:
+        extra_sections.append(extra_instruction)
+    if is_deepseek_provider(llm, model):
+        extra_sections.append(deepseek_executor_guidance(detail_level))
+    extra_block = "\n\n" + "\n\n".join(extra_sections) if extra_sections else ""
     conversation: list[LLMMessage] = [
         LLMMessage.system(system_prompt),
         LLMMessage.user(

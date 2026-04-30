@@ -5,6 +5,7 @@ import pytest
 from backend.generator.svg_critic import CriticReport
 from backend.generator.visual_critic import VisualCheckOutcome
 from backend.llm import LLMResponse
+from backend.llm.types import ProviderInfo
 from backend.orchestrator import svg_executor
 from backend.orchestrator.svg_executor import generate_svg_pages
 from backend.usage.tracker import current_usage_context
@@ -23,12 +24,42 @@ class _FakeLLM:
         return LLMResponse(content=response)
 
 
+class _DeepSeekLLM(_FakeLLM):
+    def get_provider_info(self) -> ProviderInfo:
+        return ProviderInfo(name="deepseek", display_name="DeepSeek")
+
+
 def _svg(body: str) -> str:
     return (
         '```svg\n<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720">'
         '<rect width="1280" height="720" fill="#fff"/>'
         f"{body}</svg>\n```"
     )
+
+
+@pytest.mark.asyncio
+async def test_generate_svg_pages_adds_deepseek_executor_guidance(
+    workspace_tmp,
+) -> None:
+    manuscript = "# Page One\n\n- Mechanism\n- Evidence"
+    llm = _DeepSeekLLM([_svg('<text x="100" y="100" font-size="24">ok</text>')])
+
+    pages = [
+        page_num
+        async for page_num, _ in generate_svg_pages(
+            "# Design",
+            manuscript,
+            workspace_tmp,
+            llm,
+            "deepseek-v4-pro",
+            detail_level="very_high",
+        )
+    ]
+
+    assert pages == [1]
+    initial_prompt = llm.message_snapshots[0][1].content
+    assert "DeepSeek Execution Calibration" in initial_prompt
+    assert "preserve depth without overcrowding" in initial_prompt
 
 
 @pytest.mark.asyncio

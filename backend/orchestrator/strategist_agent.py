@@ -8,6 +8,10 @@ from pathlib import Path
 from backend.config import CANVAS_FORMATS, DESIGN_STYLES, settings
 from backend.llm import LLMMessage, LLMProvider, LLMResponse
 from backend.orchestrator.manuscript import count_manuscript_pages
+from backend.orchestrator.provider_guidance import (
+    deepseek_strategy_guidance,
+    is_deepseek_provider,
+)
 
 PROMPT_PATH = Path(__file__).parent / "prompts" / "strategist.md"
 DESIGN_SPEC_MAX_TOKENS = 24576
@@ -110,6 +114,9 @@ async def create_design_spec(
         f"- {_language_constraint(language)}",
         "- Detail level `normal` should keep pages concise, `high` should allow moderately denser explanatory content, and `very_high` should accommodate richer explanations and fuller evidence coverage without becoming unreadable.",
     ]
+
+    if is_deepseek_provider(llm, model):
+        user_parts.append("\n" + deepseek_strategy_guidance(detail_level))
 
     if style_overrides:
         override_lines = ["\n## Style Overrides (must override defaults)"]
