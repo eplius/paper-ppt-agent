@@ -28,6 +28,8 @@ The parsed paper content lists available paper figures with stable tokens of the
 - Place the token on its own line, optionally followed by `— short note for the executor`.
 - Pick the token whose listed caption actually matches the slide's topic.
 - If no listed figure fits, omit the real paper figure instead of guessing — never write `![caption](path)` or make up a path.
+- Avoid reusing the same figure token on multiple slides. If a later slide needs the same idea, summarize it with bullets, a native diagram, or a small redrawn chart instead of repeating the same extracted image.
+- Do not claim a different figure/table number than the token caption. For example, never describe a `Figure 3` token as `Figure 4`.
 
 These tokens are the only valid way to reference extracted paper figures.
 

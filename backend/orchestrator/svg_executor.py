@@ -14,7 +14,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
 
 from backend.config import settings
-from backend.generator.svg_critic import CriticConfig, CriticReport, check_svg
+from backend.generator.svg_critic import CriticConfig, CriticReport, Violation, check_svg
 from backend.generator.visual_critic import VisualCriticConfig, visual_check
 from backend.llm import LLMMessage, LLMProvider, LLMResponse
 from backend.orchestrator.manuscript import split_manuscript_pages
@@ -22,6 +22,11 @@ from backend.usage.tracker import reset_usage_context, set_usage_context
 
 # `[[FIG:fig_007_p9_page]]` style tokens emitted by the research agent.
 FIG_TOKEN_RE = re.compile(r"\[\[FIG:([A-Za-z0-9_\-]+)\]\]")
+IMAGE_HREF_RE = re.compile(r"<image\b[^>]*\bhref=[\"']([^\"']+)[\"']", re.IGNORECASE)
+FIGURE_LABEL_RE = re.compile(
+    r"\b(fig(?:ure)?|table)\s*\.?\s*(\d+)\b|([图表])\s*(\d+)",
+    re.IGNORECASE,
+)
 
 PROMPT_PATH = Path(__file__).parent / "prompts" / "executor.md"
 
@@ -37,10 +42,10 @@ CriticCallback = Callable[[int, int, CriticReport], Awaitable[None]]
 def _resolve_fig_tokens(
     page_content: str,
     figure_inventory: list[dict] | None,
-) -> tuple[str, list[dict]]:
+) -> tuple[str, list[dict], list[str]]:
     """Replace `[[FIG:id]]` tokens with explicit real-figure references."""
     if not figure_inventory:
-        return page_content, []
+        return page_content, [], []
 
     by_id: dict[str, dict] = {}
     for fig in figure_inventory:
@@ -50,12 +55,18 @@ def _resolve_fig_tokens(
 
     used: list[dict] = []
     seen: set[str] = set()
+    rejected: list[str] = []
 
     def _replace(match: re.Match) -> str:
         fig_id = match.group(1)
         fig = by_id.get(fig_id)
         if fig is None:
             return f"[[MISSING_FIG:{fig_id}]]"
+        line = _line_containing(page_content, match.start())
+        mismatch = _figure_label_mismatch(line, str(fig.get("caption") or ""))
+        if mismatch:
+            rejected.append(f"{fig_id}: {mismatch}")
+            return f"[[REJECTED_FIG:{fig_id} — {mismatch}]]"
         if fig_id not in seen:
             seen.add(fig_id)
             used.append(fig)
@@ -65,19 +76,26 @@ def _resolve_fig_tokens(
             cap = cap[:157] + "..."
         return f"[PAPER FIGURE — id={fig_id}, href=\"{path}\", caption: {cap}]"
 
-    return FIG_TOKEN_RE.sub(_replace, page_content), used
+    return FIG_TOKEN_RE.sub(_replace, page_content), used, rejected
 
 
-def _figure_guidance_block(used: list[dict]) -> str:
+def _figure_guidance_block(used: list[dict], rejected: list[str] | None = None) -> str:
     """Constrain real paper-figure hrefs without limiting native SVG visuals."""
+    rejected = rejected or []
     if not used:
-        return (
+        lines = [
             "## Paper Figure Guidance\n"
             "- This slide does not contain an explicit paper-figure token. "
             "Do not invent a paper-figure `<image href>` path. This restriction "
             "applies only to extracted paper figures; native SVG diagrams, charts, "
             "and visual treatments remain available."
-        )
+        ]
+        for item in rejected:
+            lines.append(
+                f"- Rejected paper figure token: {item}. Do not use its href; "
+                "summarize the idea with native SVG or omit the image."
+            )
+        return "\n".join(lines)
 
     lines = ["## Paper Figure Guidance"]
     for fig in used:
@@ -93,7 +111,128 @@ def _figure_guidance_block(used: list[dict]) -> str:
         "a different paper-figure href, reuse one from another slide, or invent "
         "a paper-figure path. This does not restrict native SVG visuals."
     )
+    for item in rejected:
+        lines.append(
+            f"Rejected paper figure token: {item}. Do not use its href; summarize "
+            "the idea with native SVG or omit the image."
+        )
     return "\n".join(lines)
+
+
+def _line_containing(text: str, offset: int) -> str:
+    start = text.rfind("\n", 0, offset) + 1
+    end = text.find("\n", offset)
+    if end == -1:
+        end = len(text)
+    return text[start:end]
+
+
+def _extract_figure_label(text: str) -> tuple[str, str] | None:
+    match = FIGURE_LABEL_RE.search(text)
+    if not match:
+        return None
+    if match.group(1):
+        kind_raw = match.group(1).lower()
+        kind = "table" if kind_raw == "table" else "figure"
+        return kind, match.group(2)
+    kind = "figure" if match.group(3) == "图" else "table"
+    return kind, match.group(4)
+
+
+def _figure_label_mismatch(reference_line: str, caption: str) -> str | None:
+    requested = _extract_figure_label(reference_line)
+    actual = _extract_figure_label(caption)
+    if not requested or not actual:
+        return None
+    if requested != actual:
+        req_kind, req_num = requested
+        actual_kind, actual_num = actual
+        return (
+            f"requested {req_kind} {req_num}, but inventory caption is "
+            f"{actual_kind} {actual_num}"
+        )
+    return None
+
+
+def _paper_figure_key_from_href(href: str) -> str | None:
+    if href.startswith("data:"):
+        return None
+    normalized = href.replace("\\", "/")
+    stem = Path(normalized).stem
+    if "/sources/images/" in normalized or stem.startswith("fig_"):
+        return stem
+    return None
+
+
+def _validate_paper_figure_refs(
+    svg_content: str,
+    *,
+    allowed_figures: list[dict],
+    used_paper_figures: dict[str, int],
+) -> CriticReport:
+    allowed_keys = {
+        Path(str(fig.get("path") or "")).stem
+        for fig in allowed_figures
+        if fig.get("path")
+    }
+    hrefs = IMAGE_HREF_RE.findall(svg_content)
+    paper_keys = [
+        key for href in hrefs if (key := _paper_figure_key_from_href(href)) is not None
+    ]
+    violations: list[Violation] = []
+
+    for key in sorted(set(paper_keys)):
+        if key not in allowed_keys:
+            violations.append(
+                Violation(
+                    rule="paper_figure_not_allowed",
+                    severity="error",
+                    detail=(
+                        f'Paper figure "{key}" is not allowed for this slide. '
+                        "Remove it or replace it with one of the current page's "
+                        "explicitly allowed paper-figure hrefs."
+                    ),
+                )
+            )
+        if paper_keys.count(key) > 1:
+            violations.append(
+                Violation(
+                    rule="paper_figure_duplicate_on_slide",
+                    severity="error",
+                    detail=(
+                        f'Paper figure "{key}" appears multiple times on this slide. '
+                        "Use it once at most, or replace repeated copies with native SVG."
+                    ),
+                )
+            )
+        previous_page = used_paper_figures.get(key)
+        if previous_page is not None:
+            violations.append(
+                Violation(
+                    rule="paper_figure_reused_from_previous_slide",
+                    severity="error",
+                    detail=(
+                        f'Paper figure "{key}" was already used on slide {previous_page}. '
+                        "Do not repeat extracted paper images across slides; redraw the "
+                        "idea with native SVG or choose a different explicitly allowed figure."
+                    ),
+                )
+            )
+
+    return CriticReport(passed=not violations, violations=violations)
+
+
+def _merge_reports(*reports: CriticReport) -> CriticReport:
+    violations: list[Violation] = []
+    canvas = None
+    for report in reports:
+        violations.extend(report.violations)
+        canvas = canvas or report.canvas
+    return CriticReport(
+        passed=all(report.passed for report in reports),
+        violations=violations,
+        canvas=canvas,
+    )
 
 
 async def generate_svg_pages(
@@ -125,6 +264,7 @@ async def generate_svg_pages(
     pages = split_manuscript_pages(manuscript)
     svg_output_dir = project_dir / "svg_output"
     svg_output_dir.mkdir(parents=True, exist_ok=True)
+    used_paper_figures: dict[str, int] = {}
 
     extra_block = f"\n\n{extra_instruction}" if extra_instruction else ""
     conversation: list[LLMMessage] = [
@@ -154,11 +294,11 @@ async def generate_svg_pages(
         if target_pages is not None and page_num not in target_pages:
             continue
         page_name = _make_page_name(page_num, page_content)
-        rewritten_content, used_figures = _resolve_fig_tokens(
+        rewritten_content, used_figures, rejected_figures = _resolve_fig_tokens(
             page_content,
             figure_inventory,
         )
-        figure_guidance = _figure_guidance_block(used_figures)
+        figure_guidance = _figure_guidance_block(used_figures, rejected_figures)
 
         conversation.append(
             LLMMessage.user(
@@ -216,7 +356,14 @@ async def generate_svg_pages(
             best_svg = svg_content
             visual_attempted = False
             for attempt in range(2, MAX_REPAIR_ATTEMPTS + 2):
-                report = check_svg(svg_content, critic_config)
+                report = _merge_reports(
+                    check_svg(svg_content, critic_config),
+                    _validate_paper_figure_refs(
+                        svg_content,
+                        allowed_figures=used_figures,
+                        used_paper_figures=used_paper_figures,
+                    ),
+                )
                 if on_critic is not None:
                     await on_critic(page_num, attempt - 1, report)
 
@@ -289,6 +436,10 @@ async def generate_svg_pages(
 
             svg_path = svg_output_dir / f"{page_num:02d}_{page_name}.svg"
             svg_path.write_text(best_svg, encoding="utf-8")
+            for href in IMAGE_HREF_RE.findall(best_svg):
+                key = _paper_figure_key_from_href(href)
+                if key is not None:
+                    used_paper_figures.setdefault(key, page_num)
             yield page_num, best_svg
         else:
             conversation.append(LLMMessage.assistant(response.content))
