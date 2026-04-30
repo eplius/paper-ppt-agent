@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { Palette, Terminal, X } from "lucide-react";
 import { Layout } from "../components/layout/Layout";
 import { ModelSelector } from "../components/config/ModelSelector";
 import { OptionsPanel } from "../components/config/OptionsPanel";
@@ -16,6 +17,7 @@ import type { DeepSeekSettings } from "../lib/types";
 
 const ROUTING_PROFILE_STORAGE_KEY = "paper-ppt-agent-routing-profiles-v1";
 type LanguageMode = "zh" | "en" | "custom";
+type SecondaryPanel = "style" | "log";
 const DEFAULT_DEEPSEEK_SETTINGS: DeepSeekSettings = {
   thinking_enabled: true,
   reasoning_effort: "max",
@@ -98,6 +100,7 @@ export function GeneratePage() {
   const [detailLevel, setDetailLevel] = useState("normal");
   const [timeoutSeconds, setTimeoutSeconds] = useState("");
   const [instruction, setInstruction] = useState("");
+  const [secondaryPanel, setSecondaryPanel] = useState<SecondaryPanel | null>(null);
   const freshRequested = searchParams.get("fresh") === "1";
   const targetJobId = searchParams.get("job") ?? undefined;
   const targetHistoryEntry = targetJobId
@@ -228,7 +231,6 @@ export function GeneratePage() {
           <UploadZone onFileSelect={(file) => void uploadFile(file)} />
           <FilePreview session={uploadSession} />
           <ProgressPanel job={job} connectionStatus={connectionStatus} />
-          <AgentLog logs={logs} />
         </div>
 
         <div className="studio-column studio-column-preview">
@@ -252,12 +254,6 @@ export function GeneratePage() {
             onApiKeyChange={setApiKey}
             onDeepSeekSettingsChange={setDeepSeekSettings}
           />
-          <StylePicker
-            value={style}
-            onChange={setStyle}
-            overrides={styleOverrides}
-            onOverridesChange={setStyleOverrides}
-          />
           <OptionsPanel
             canvasFormat={canvasFormat}
             languageMode={languageMode}
@@ -274,6 +270,24 @@ export function GeneratePage() {
             onTimeoutSecondsChange={setTimeoutSeconds}
             onInstructionChange={setInstruction}
           />
+          <div className="studio-secondary-actions">
+            <button
+              type="button"
+              className={`secondary-action ${secondaryPanel === "style" ? "secondary-action-active" : ""}`}
+              onClick={() => setSecondaryPanel((current) => (current === "style" ? null : "style"))}
+            >
+              <Palette size={16} />
+              <span>{t("style.title")}</span>
+            </button>
+            <button
+              type="button"
+              className={`secondary-action ${secondaryPanel === "log" ? "secondary-action-active" : ""}`}
+              onClick={() => setSecondaryPanel((current) => (current === "log" ? null : "log"))}
+            >
+              <Terminal size={16} />
+              <span>{t("log.title")}</span>
+            </button>
+          </div>
           <button
             type="button"
             className="primary-button full-width launch-button"
@@ -328,6 +342,42 @@ export function GeneratePage() {
           {error ? <p className="error-text">{error}</p> : null}
         </div>
       </section>
+      <aside
+        className={`studio-secondary-panel ${secondaryPanel ? "studio-secondary-panel-open" : ""}`}
+        aria-hidden={!secondaryPanel}
+      >
+        <div className="studio-secondary-header">
+          <div className="panel-title-row">
+            {secondaryPanel === "style" ? (
+              <Palette size={15} className="panel-title-icon" />
+            ) : (
+              <Terminal size={15} className="panel-title-icon" />
+            )}
+            <p className="panel-title">
+              {secondaryPanel === "style" ? t("style.title") : t("log.title")}
+            </p>
+          </div>
+          <button
+            type="button"
+            className="icon-btn"
+            aria-label={t("common.close")}
+            onClick={() => setSecondaryPanel(null)}
+          >
+            <X size={17} />
+          </button>
+        </div>
+        <div className="studio-secondary-body">
+          {secondaryPanel === "style" ? (
+            <StylePicker
+              value={style}
+              onChange={setStyle}
+              overrides={styleOverrides}
+              onOverridesChange={setStyleOverrides}
+            />
+          ) : null}
+          {secondaryPanel === "log" ? <AgentLog logs={logs} /> : null}
+        </div>
+      </aside>
     </Layout>
   );
 }
