@@ -1,10 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
+import { BarChart3, ChevronLeft, ChevronRight, Home, Layers3, Plus } from "lucide-react";
 import { useGeneration } from "../../hooks/useGeneration";
 import { useLocale } from "../../i18n";
 import { translateStageStatus } from "../../lib/i18nStatus";
 
-export function Sidebar() {
+interface SidebarProps {
+  collapsed?: boolean;
+  onCollapsedChange?: (collapsed: boolean) => void;
+}
+
+export function Sidebar({ collapsed = false, onCollapsedChange }: SidebarProps) {
   const { t, locale } = useLocale();
   const location = useLocation();
   const { history, activeJobId, removeHistory, reset } = useGeneration();
@@ -16,9 +22,9 @@ export function Sidebar() {
   const confirmRef = useRef<HTMLDivElement | null>(null);
   const searchParams = new URLSearchParams(location.search);
   const links = [
-    { to: "/", label: t("sidebar.overview") },
-    { to: "/generate", label: t("sidebar.generationStudio") },
-    { to: "/logs", label: t("sidebar.logs") },
+    { to: "/", label: t("sidebar.overview"), icon: Home },
+    { to: "/generate", label: t("sidebar.generationStudio"), icon: Layers3 },
+    { to: "/logs", label: t("sidebar.logs"), icon: BarChart3 },
   ];
   const recentHistory = history.slice(0, 5);
   const currentResultJobId = searchParams.get("job");
@@ -56,21 +62,46 @@ export function Sidebar() {
   }, [confirmState]);
 
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar ${collapsed ? "sidebar-collapsed-panel" : ""}`}>
       <div className="sidebar-section">
+        <button
+          type="button"
+          className="sidebar-toggle"
+          aria-label={collapsed ? t("sidebar.expand") : t("sidebar.collapse")}
+          title={collapsed ? t("sidebar.expand") : t("sidebar.collapse")}
+          onClick={() => onCollapsedChange?.(!collapsed)}
+        >
+          {collapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
+        </button>
         <p className="sidebar-label">{t("sidebar.navigation")}</p>
-        {links.map((link) => (
-          <Link
-            key={link.to}
-            to={link.to}
-            className={`sidebar-link ${location.pathname === link.to ? "sidebar-link-active" : ""}`}
-          >
-            {link.label}
-          </Link>
-        ))}
+        {links.map((link) => {
+          const Icon = link.icon;
+          return (
+            <Link
+              key={link.to}
+              to={link.to}
+              className={`sidebar-link ${location.pathname === link.to ? "sidebar-link-active" : ""}`}
+              title={link.label}
+              aria-label={link.label}
+            >
+              <Icon size={17} strokeWidth={1.8} />
+              <span className="sidebar-link-label">{link.label}</span>
+            </Link>
+          );
+        })}
+        <Link
+          to="/generate?fresh=1"
+          className={`sidebar-link sidebar-new-run-link ${isFreshEntryActive ? "sidebar-link-active" : ""}`}
+          onClick={() => reset()}
+          title={t("result.newRun")}
+          aria-label={t("result.newRun")}
+        >
+          <Plus size={17} strokeWidth={1.8} />
+          <span className="sidebar-link-label">{t("result.newRun")}</span>
+        </Link>
       </div>
 
-      <div className="sidebar-section">
+      <div className="sidebar-section sidebar-history-section">
         <p className="sidebar-label">{t("sidebar.history")}</p>
         <div className="history-list">
           <Link
