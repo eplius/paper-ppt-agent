@@ -1,4 +1,4 @@
-import { HelpCircle, Settings2 } from "lucide-react";
+import { Eye, HelpCircle, Settings2 } from "lucide-react";
 import { useLocale } from "../../i18n";
 
 interface OptionsPanelProps {
@@ -85,33 +85,35 @@ export function OptionsPanel(props: OptionsPanelProps) {
             placeholder={t("options.timeoutPlaceholder")}
           />
         </label>
-        <label
-          className="form-field"
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            gap: "0.5rem",
-          }}
-        >
-          <input
-            type="checkbox"
-            checked={props.enableVisualCritic}
-            onChange={(event) => props.onEnableVisualCriticChange(event.target.checked)}
-            style={{ width: "auto", margin: 0 }}
-          />
-          <span style={{ display: "inline-flex", alignItems: "center", gap: "0.25rem" }}>
-            {t("options.visualCritic")}
+        <label className="visual-qa-field">
+          <span
+            className={`visual-qa-control ${
+              props.enableVisualCritic ? "visual-qa-control-active" : ""
+            }`}
+          >
+            <input
+              className="visual-qa-input"
+              type="checkbox"
+              checked={props.enableVisualCritic}
+              onChange={(event) => props.onEnableVisualCriticChange(event.target.checked)}
+            />
+            <span className="visual-qa-icon" aria-hidden="true">
+              <Eye size={16} />
+            </span>
+            <span className="visual-qa-copy">
+              <span className="visual-qa-name">{t("options.visualCritic")}</span>
+            </span>
             <span
-              title={t("options.visualCriticTooltip")}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                cursor: "help",
-                opacity: 0.6,
-              }}
+              className="visual-qa-help"
+              data-tooltip={t("options.visualCriticTooltip")}
               aria-label={t("options.visualCriticTooltip")}
+              tabIndex={0}
+              onClick={(event) => event.preventDefault()}
             >
               <HelpCircle size={14} />
+            </span>
+            <span className="visual-qa-switch" aria-hidden="true">
+              <span />
             </span>
           </span>
         </label>

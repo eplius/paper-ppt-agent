@@ -95,7 +95,7 @@ const translations: Record<Locale, Dictionary> = {
     "options.timeoutPlaceholder": "No limit",
     "options.visualCritic": "Visual QA",
     "options.visualCriticTooltip":
-      "Render each slide as an image and have a multimodal LLM inspect it for layout, contrast, and decorative-line issues. Adds one extra LLM call per slide. Requires a vision-capable model (GPT-4o, Claude Sonnet, Gemini, etc.). Text-only models will silently skip this step.",
+      "Render each slide as an image and have a multimodal LLM inspect it for layout, contrast, and decorative-line issues. Adds one extra LLM call per slide. Requires a vision-capable model. Text-only models will silently skip this step.",
     "options.instruction": "Instruction",
     "options.instructionPlaceholder":
       "Example: keep it short, focus on the method, and leave related work brief.",
@@ -277,7 +277,7 @@ const translations: Record<Locale, Dictionary> = {
     "options.timeoutPlaceholder": "不限制",
     "options.visualCritic": "视觉 QA",
     "options.visualCriticTooltip":
-      "把每页渲染成图像，再调用多模态 LLM 检查布局、对比度和装饰线等视觉问题。每页会多一次 LLM 调用。需要支持视觉的模型（GPT-4o、Claude Sonnet、Gemini 等），纯文本模型会自动跳过此步骤。",
+      "把每页渲染成图像，再调用多模态 LLM 检查布局、对比度和装饰线等视觉问题。每页会多一次 LLM 调用。需要支持视觉的模型，纯文本模型会自动跳过此步骤。",
     "options.instruction": "补充指令",
     "options.instructionPlaceholder": "例如：控制在 12 页以内，重点放在方法和实验。",
     "progress.title": "流程监控",
