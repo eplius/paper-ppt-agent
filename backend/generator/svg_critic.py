@@ -152,6 +152,21 @@ class CriticConfig:
     # Maximum violations to include in the report prompt (trim noise).
     max_violations_in_report: int = 20
 
+    # Accent-line-under-title detector.
+    # A near-horizontal line/thin rect within this many user units below a
+    # title text baseline counts as a forbidden "AI-slide accent line".
+    accent_line_max_gap: float = 24.0
+    # A rect/line is considered "thin and horizontal" when height <= this and
+    # width >= title_text_width * accent_line_min_width_ratio.
+    accent_line_max_thickness: float = 6.0
+    accent_line_min_width_ratio: float = 0.5
+
+    # Low-contrast detector.
+    # WCAG-style relative-luminance ratio threshold. Anything below 3.0 is
+    # flagged. We pick 3.0 (not 4.5) to avoid over-flagging stylized large
+    # titles where designers commonly accept slightly looser contrast.
+    min_contrast_ratio: float = 3.0
+
 
 def _strip_ns(tag: str) -> str:
     """Strip XML namespace from a tag name."""
@@ -435,6 +450,72 @@ def check_svg(svg_content: str, config: CriticConfig | None = None) -> CriticRep
                     )
                 )
 
+    # 4b. Accent-line-under-title detector.
+    #
+    # Find titles (the largest font_size text on the page, or any text whose
+    # font-size >= min_title_font_size). Then look for any <line> or thin
+    # horizontal <rect> sitting directly below it within the configured gap.
+    title_boxes: list[tuple[ET.Element, tuple[float, float, float, float]]] = [
+        (el, bbox)
+        for el, bbox in text_boxes
+        if _font_size_of(el, 16.0) >= cfg.min_title_font_size
+    ]
+    if title_boxes:
+        for el, bbox in _iter_horizontal_strokes(root):
+            for title_entry in title_boxes:
+                title_bbox = title_entry[1]
+                if _is_accent_line_under_title(
+                    title_bbox, bbox, cfg
+                ):
+                    violations.append(
+                        Violation(
+                            rule="accent_line_under_title",
+                            severity="warning",
+                            detail=(
+                                "A near-horizontal line/thin rectangle is positioned "
+                                "directly under a title. This is a hallmark of AI-generated "
+                                "slides. Remove it and use whitespace, a left-side accent "
+                                "bar, or a tinted background block instead."
+                            ),
+                            element=_element_identifier(el),
+                            bbox=bbox,
+                        )
+                    )
+                    break
+
+    # 4c. Low-contrast detector.
+    #
+    # For each text element, find the nearest underlying filled shape (rect /
+    # path) whose bbox encloses the text bbox; compare WCAG relative
+    # luminances. If the surrounding shape has no fill we fall back to the
+    # SVG root background, which we infer from the first full-canvas <rect>
+    # if present, otherwise assume white.
+    if canvas:
+        bg_layers = _collect_background_layers(root, canvas)
+        for el, bbox in text_boxes:
+            text_color = _resolve_text_color(el)
+            if text_color is None:
+                continue
+            bg_color = _resolve_background_under(bbox, bg_layers)
+            if bg_color is None:
+                continue
+            ratio = _contrast_ratio(text_color, bg_color)
+            if ratio < cfg.min_contrast_ratio:
+                violations.append(
+                    Violation(
+                        rule="low_contrast",
+                        severity="warning",
+                        detail=(
+                            f"Text color #{text_color} on background #{bg_color} has "
+                            f"contrast ratio {ratio:.2f} (minimum {cfg.min_contrast_ratio:.1f}). "
+                            "Increase contrast: use a darker text color on light fills, "
+                            "or a lighter text color on dark fills."
+                        ),
+                        element=_element_identifier(el),
+                        bbox=bbox,
+                    )
+                )
+
     # 5. Palette compliance (optional).
     if cfg.allowed_palette:
         allowed = {_normalize_hex(c) for c in cfg.allowed_palette}
@@ -483,3 +564,146 @@ def _is_neutral(hex_value: str) -> bool:
     if max(r, g, b) - min(r, g, b) <= 8:
         return True
     return False
+
+
+# ── Accent-line-under-title helpers ──────────────────────────────────────────
+
+
+def _iter_horizontal_strokes(
+    root: ET.Element,
+) -> list[tuple[ET.Element, tuple[float, float, float, float]]]:
+    """Find <line> and thin horizontal <rect>/path-h elements with bboxes."""
+    out: list[tuple[ET.Element, tuple[float, float, float, float]]] = []
+    for el in _iter_all(root):
+        tag = _strip_ns(el.tag)
+        if tag == "line":
+            x1 = _float_attr(el, "x1", 0.0)
+            y1 = _float_attr(el, "y1", 0.0)
+            x2 = _float_attr(el, "x2", 0.0)
+            y2 = _float_attr(el, "y2", 0.0)
+            if abs(y1 - y2) <= 2.0 and abs(x2 - x1) > 1.0:
+                bbox = (min(x1, x2), min(y1, y2) - 1.0, abs(x2 - x1), 2.0)
+                out.append((el, bbox))
+        elif tag == "rect":
+            x = _float_attr(el, "x", 0.0)
+            y = _float_attr(el, "y", 0.0)
+            w = _float_attr(el, "width", 0.0)
+            h = _float_attr(el, "height", 0.0)
+            if w > 0.0 and 0.0 < h <= 8.0 and w / max(h, 0.5) >= 8.0:
+                out.append((el, (x, y, w, h)))
+    return out
+
+
+def _is_accent_line_under_title(
+    title_bbox: tuple[float, float, float, float],
+    line_bbox: tuple[float, float, float, float],
+    cfg: CriticConfig,
+) -> bool:
+    """Decide whether `line_bbox` looks like a decorative line under a title."""
+    tx, ty, tw, th = title_bbox
+    lx, ly, lw, lh = line_bbox
+    if lh > cfg.accent_line_max_thickness:
+        return False
+    title_bottom = ty + th
+    gap = ly - title_bottom
+    if gap < -2.0 or gap > cfg.accent_line_max_gap:
+        return False
+    # Horizontal proximity: the line should overlap or sit close to the
+    # title horizontally.
+    line_right = lx + lw
+    title_right = tx + tw
+    horiz_overlap = max(0.0, min(line_right, title_right) - max(lx, tx))
+    if horiz_overlap < tw * 0.3:
+        return False
+    # Width sanity: a left-side accent BAR (very short, well to the left of
+    # the title) should NOT be flagged. Only flag lines wide enough to read
+    # as "underline."
+    if lw < tw * cfg.accent_line_min_width_ratio:
+        return False
+    return True
+
+
+# ── Low-contrast helpers ─────────────────────────────────────────────────────
+
+
+def _resolve_text_color(el: ET.Element) -> str | None:
+    """Return the text fill as a 6-char lowercase hex, or None if unknown."""
+    fill = (el.get("fill") or "").strip()
+    if fill.startswith("#"):
+        return _normalize_hex(fill)
+    style = el.get("style") or ""
+    m = re.search(r"fill\s*:\s*#([0-9a-fA-F]{3,6})", style)
+    if m:
+        return _normalize_hex(m.group(1))
+    # Default SVG fill is black.
+    return "000000"
+
+
+def _collect_background_layers(
+    root: ET.Element,
+    canvas: tuple[float, float],
+) -> list[tuple[tuple[float, float, float, float], str]]:
+    """Collect filled rects ordered front-to-back (later in document = on top)."""
+    layers: list[tuple[tuple[float, float, float, float], str]] = []
+    cw, ch = canvas
+    # Implicit canvas background.
+    layers.append(((0.0, 0.0, cw, ch), "ffffff"))
+    for el in _iter_all(root):
+        tag = _strip_ns(el.tag)
+        if tag != "rect":
+            continue
+        fill = (el.get("fill") or "").strip()
+        hex_color: str | None = None
+        if fill.startswith("#"):
+            hex_color = _normalize_hex(fill)
+        else:
+            style = el.get("style") or ""
+            m = re.search(r"fill\s*:\s*#([0-9a-fA-F]{3,6})", style)
+            if m:
+                hex_color = _normalize_hex(m.group(1))
+        if hex_color is None or len(hex_color) != 6:
+            continue
+        x = _float_attr(el, "x", 0.0)
+        y = _float_attr(el, "y", 0.0)
+        w = _float_attr(el, "width", 0.0)
+        h = _float_attr(el, "height", 0.0)
+        if w <= 0 or h <= 0:
+            continue
+        layers.append(((x, y, w, h), hex_color))
+    return layers
+
+
+def _resolve_background_under(
+    text_bbox: tuple[float, float, float, float],
+    layers: list[tuple[tuple[float, float, float, float], str]],
+) -> str | None:
+    """Return the topmost rect color whose bbox encloses the text bbox."""
+    tx, ty, tw, th = text_bbox
+    cx = tx + tw / 2.0
+    cy = ty + th / 2.0
+    best: str | None = None
+    for (x, y, w, h), color in layers:
+        if x <= cx <= x + w and y <= cy <= y + h:
+            best = color  # later layers in doc order win
+    return best
+
+
+def _contrast_ratio(fg_hex: str, bg_hex: str) -> float:
+    """WCAG 2.x contrast ratio between two 6-char hex colors."""
+    def _luminance(hex_value: str) -> float:
+        r = int(hex_value[0:2], 16) / 255.0
+        g = int(hex_value[2:4], 16) / 255.0
+        b = int(hex_value[4:6], 16) / 255.0
+
+        def _ch(c: float) -> float:
+            return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+
+        return 0.2126 * _ch(r) + 0.7152 * _ch(g) + 0.0722 * _ch(b)
+
+    try:
+        l1 = _luminance(fg_hex)
+        l2 = _luminance(bg_hex)
+    except ValueError:
+        return 21.0  # Treat parse failure as "fine" to avoid false positives.
+    lighter, darker = (l1, l2) if l1 > l2 else (l2, l1)
+    return (lighter + 0.05) / (darker + 0.05)
