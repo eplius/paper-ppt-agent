@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import pytest
 
+from backend.generator.svg_critic import CriticReport
+from backend.generator.visual_critic import VisualCheckOutcome
 from backend.llm import LLMResponse
+from backend.orchestrator import svg_executor
 from backend.orchestrator.svg_executor import generate_svg_pages
+from backend.usage.tracker import current_usage_context
 
 
 class _FakeLLM:
@@ -75,3 +79,42 @@ async def test_generate_svg_pages_fails_after_bounded_same_page_retries(
 
     assert llm.calls == 3
     assert not list((workspace_tmp / "svg_output").glob("*.svg"))
+
+
+@pytest.mark.asyncio
+async def test_visual_critic_uses_distinct_usage_stage(
+    workspace_tmp,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manuscript = "# Page One\n\nBody"
+    valid_svg = (
+        '```svg\n<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720">'
+        '<rect width="1280" height="720" fill="#fff"/>'
+        '<text x="100" y="100" font-size="24">ok</text></svg>\n```'
+    )
+    llm = _FakeLLM([valid_svg])
+    seen_contexts: list[dict] = []
+
+    async def fake_visual_check(*args, **kwargs) -> VisualCheckOutcome:
+        seen_contexts.append(current_usage_context())
+        return VisualCheckOutcome(rendered=True, report=CriticReport(passed=True))
+
+    monkeypatch.setattr(svg_executor, "visual_check", fake_visual_check)
+
+    pages = [
+        page_num
+        async for page_num, _ in generate_svg_pages(
+            "# Design",
+            manuscript,
+            workspace_tmp,
+            llm,
+            "fake-model",
+            enable_visual_critic=True,
+        )
+    ]
+
+    assert pages == [1]
+    assert len(seen_contexts) == 1
+    assert seen_contexts[0]["stage"] == "visual_qa"
+    assert seen_contexts[0]["page"] == 1
+    assert seen_contexts[0]["attempt"] == 1

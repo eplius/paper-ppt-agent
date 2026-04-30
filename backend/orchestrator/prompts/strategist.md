@@ -92,3 +92,4 @@ List in section IX a layout type per page. Across the deck, mix at least three o
 - ❌ Mixed paddings within one deck. Pick one rhythm (e.g. 24/48 px) and use it everywhere.
 - ❌ Low-contrast pairings (light text on light fill, dark text on dark fill).
 - ❌ Three pages in a row with the same layout type.
+- ❌ Badge/tag clutter. Do not make capsule tags the primary visual motif; limit them to a few meaningful legend, category, process, or contrast labels.

@@ -71,3 +71,7 @@ One complete SVG file per page with proper viewBox.
 
 ### Color weight discipline
 18. Apply the palette with dominance: the primary color should occupy roughly 60-70% of the colored surface area on a typical content page (background blocks, headings, primary shapes). The accent color is reserved for one or two emphasis points per page (a single highlighted number, a section bar, an icon fill). Do not spread the accent uniformly.
+
+### Badge / tag discipline
+19. Do not use capsule badges, pills, or tag chips as filler decoration. Use at most 2-3 small tags per page unless the content is explicitly a taxonomy, legend, filter set, or comparison key.
+20. Every tag must carry a necessary role: identify a reusable legend/category, label a process step, or mark one essential contrast. Remove tags that repeat a nearby heading, body sentence, or obvious icon label. Prefer direct annotations, callout cards, arrows, or integrated section headings over repeated pill labels.

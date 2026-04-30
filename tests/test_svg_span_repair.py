@@ -28,6 +28,30 @@ def test_critic_rejects_nested_text_elements() -> None:
     assert any(v.rule == "nested_text" for v in report.violations)
 
 
+def test_critic_rejects_later_shape_covering_text() -> None:
+    svg = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720">
+  <rect x="80" y="120" width="620" height="140" fill="#ffffff"/>
+  <text x="120" y="190" font-size="24">NYU Shanghai / NYU / Tsinghua University / EPFL</text>
+  <rect x="440" y="152" width="210" height="70" rx="16" fill="#eaf2ff"/>
+</svg>"""
+
+    report = check_svg(svg)
+
+    assert not report.passed
+    assert any(v.rule == "shape_covers_text" for v in report.violations)
+
+
+def test_critic_allows_shape_background_before_label() -> None:
+    svg = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720">
+  <rect x="440" y="152" width="210" height="70" rx="16" fill="#eaf2ff"/>
+  <text x="470" y="195" font-size="24">Image</text>
+</svg>"""
+
+    report = check_svg(svg)
+
+    assert all(v.rule != "shape_covers_text" for v in report.violations)
+
+
 def test_repair_converts_html_span_inside_svg_text(workspace_tmp: Path) -> None:
     svg_path = workspace_tmp / "span.svg"
     svg_path.write_text(

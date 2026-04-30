@@ -532,7 +532,10 @@ export const useGeneration = create<GenerationState>()(
             });
             get().syncHistory(jobId);
 
-            if (event.stage === "generation") {
+            if (
+              event.stage === "generation" ||
+              (event.stage === "postprocess" && event.status === "complete")
+            ) {
               void fetchPreview(jobId)
                 .then((preview) => {
                   set((state) => {

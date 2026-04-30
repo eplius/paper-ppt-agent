@@ -167,6 +167,13 @@ class CriticConfig:
     # titles where designers commonly accept slightly looser contrast.
     min_contrast_ratio: float = 3.0
 
+    # Z-order occlusion detector. A visible shape drawn after a text element
+    # and covering at least this fraction of the estimated text bbox is treated
+    # as a likely overlap. This is intentionally conservative so legitimate
+    # chip/card backgrounds, which are normally drawn before their labels, do
+    # not trip the rule.
+    text_cover_min_ratio: float = 0.18
+
 
 def _strip_ns(tag: str) -> str:
     """Strip XML namespace from a tag name."""
@@ -338,6 +345,8 @@ def check_svg(svg_content: str, config: CriticConfig | None = None) -> CriticRep
         )
 
     canvas = _parse_viewbox(root)
+    ordered_elements = list(_iter_all(root))
+    element_order = {id(el): index for index, el in enumerate(ordered_elements)}
 
     # 2. Forbidden elements.
     for el in _iter_all(root):
@@ -380,8 +389,8 @@ def check_svg(svg_content: str, config: CriticConfig | None = None) -> CriticRep
             )
 
     # 3. Font-size + text bbox checks.
-    text_boxes: list[tuple[ET.Element, tuple[float, float, float, float]]] = []
-    for el in _iter_all(root):
+    text_boxes: list[tuple[int, ET.Element, tuple[float, float, float, float]]] = []
+    for el in ordered_elements:
         if _strip_ns(el.tag) != "text":
             continue
         # Inherit font-size of nearest ancestor if not set.
@@ -404,7 +413,7 @@ def check_svg(svg_content: str, config: CriticConfig | None = None) -> CriticRep
                 )
             )
         bbox = _text_bbox(el, font_size)
-        text_boxes.append((el, bbox))
+        text_boxes.append((element_order[id(el)], el, bbox))
 
         # Out-of-bounds.
         if canvas:
@@ -427,9 +436,9 @@ def check_svg(svg_content: str, config: CriticConfig | None = None) -> CriticRep
 
     # 4. Text-to-text overlap (coarse; tolerates small padding).
     seen_pairs: set[tuple[int, int]] = set()
-    for i, (el_a, box_a) in enumerate(text_boxes):
+    for i, (_, el_a, box_a) in enumerate(text_boxes):
         for j in range(i + 1, len(text_boxes)):
-            el_b, box_b = text_boxes[j]
+            _, el_b, box_b = text_boxes[j]
             _ = el_a  # used below in Violation element field
             key = (i, j)
             if key in seen_pairs:
@@ -457,7 +466,7 @@ def check_svg(svg_content: str, config: CriticConfig | None = None) -> CriticRep
     # horizontal <rect> sitting directly below it within the configured gap.
     title_boxes: list[tuple[ET.Element, tuple[float, float, float, float]]] = [
         (el, bbox)
-        for el, bbox in text_boxes
+        for _, el, bbox in text_boxes
         if _font_size_of(el, 16.0) >= cfg.min_title_font_size
     ]
     if title_boxes:
@@ -492,7 +501,7 @@ def check_svg(svg_content: str, config: CriticConfig | None = None) -> CriticRep
     # if present, otherwise assume white.
     if canvas:
         bg_layers = _collect_background_layers(root, canvas)
-        for el, bbox in text_boxes:
+        for _, el, bbox in text_boxes:
             text_color = _resolve_text_color(el)
             if text_color is None:
                 continue
@@ -515,6 +524,35 @@ def check_svg(svg_content: str, config: CriticConfig | None = None) -> CriticRep
                         bbox=bbox,
                     )
                 )
+
+    # 4d. Text covered by later-drawn shapes.
+    #
+    # This catches the common failure where badges, buttons, or diagram blocks
+    # are placed on top of prose. It only considers shapes that appear later in
+    # document order, so normal backgrounds drawn before their labels are not
+    # flagged.
+    covering_shapes = _collect_covering_shapes(root, element_order)
+    for text_order, text_el, text_bbox in text_boxes:
+        for shape_order, shape_el, shape_bbox in covering_shapes:
+            if shape_order <= text_order:
+                continue
+            coverage = _coverage_ratio(text_bbox, shape_bbox)
+            if coverage < cfg.text_cover_min_ratio:
+                continue
+            violations.append(
+                Violation(
+                    rule="shape_covers_text",
+                    severity="error",
+                    detail=(
+                        "A later-drawn visible shape overlaps this text enough to "
+                        "cover or obscure it. Move the shape away, resize it, or "
+                        "increase the text/container spacing."
+                    ),
+                    element=_element_identifier(text_el),
+                    bbox=text_bbox,
+                )
+            )
+            break
 
     # 5. Palette compliance (optional).
     if cfg.allowed_palette:
@@ -707,3 +745,94 @@ def _contrast_ratio(fg_hex: str, bg_hex: str) -> float:
         return 21.0  # Treat parse failure as "fine" to avoid false positives.
     lighter, darker = (l1, l2) if l1 > l2 else (l2, l1)
     return (lighter + 0.05) / (darker + 0.05)
+
+
+# ── Z-order text occlusion helpers ───────────────────────────────────────────
+
+
+def _collect_covering_shapes(
+    root: ET.Element,
+    element_order: dict[int, int],
+) -> list[tuple[int, ET.Element, tuple[float, float, float, float]]]:
+    """Collect simple visible shapes that can cover earlier text."""
+    shapes: list[tuple[int, ET.Element, tuple[float, float, float, float]]] = []
+    for el in _iter_all(root):
+        if not _is_visible_filled_shape(el):
+            continue
+        bbox = _shape_bbox(el)
+        if bbox is None:
+            continue
+        x, y, w, h = bbox
+        if w <= 0 or h <= 0 or w * h < 64:
+            continue
+        shapes.append((element_order.get(id(el), 0), el, bbox))
+    return shapes
+
+
+def _is_visible_filled_shape(el: ET.Element) -> bool:
+    tag = _strip_ns(el.tag)
+    if tag not in {"rect", "circle", "ellipse"}:
+        return False
+    fill = (el.get("fill") or "").strip().lower()
+    style = el.get("style") or ""
+    if not fill:
+        fill_match = re.search(r"fill\s*:\s*([^;]+)", style)
+        fill = fill_match.group(1).strip().lower() if fill_match else "black"
+    if fill in {"none", "transparent"}:
+        return False
+    opacity_values = [el.get("opacity"), el.get("fill-opacity")]
+    for raw in opacity_values:
+        if raw is None:
+            continue
+        try:
+            if float(raw) < 0.18:
+                return False
+        except ValueError:
+            pass
+    opacity_match = re.search(r"(?:^|;)\s*(?:fill-)?opacity\s*:\s*([0-9.]+)", style)
+    if opacity_match:
+        try:
+            if float(opacity_match.group(1)) < 0.18:
+                return False
+        except ValueError:
+            pass
+    return True
+
+
+def _shape_bbox(el: ET.Element) -> tuple[float, float, float, float] | None:
+    tag = _strip_ns(el.tag)
+    if tag == "rect":
+        x = _float_attr(el, "x", 0.0)
+        y = _float_attr(el, "y", 0.0)
+        w = _float_attr(el, "width", 0.0)
+        h = _float_attr(el, "height", 0.0)
+        return x, y, w, h
+    if tag == "circle":
+        cx = _float_attr(el, "cx", 0.0)
+        cy = _float_attr(el, "cy", 0.0)
+        r = _float_attr(el, "r", 0.0)
+        return cx - r, cy - r, r * 2, r * 2
+    if tag == "ellipse":
+        cx = _float_attr(el, "cx", 0.0)
+        cy = _float_attr(el, "cy", 0.0)
+        rx = _float_attr(el, "rx", 0.0)
+        ry = _float_attr(el, "ry", 0.0)
+        return cx - rx, cy - ry, rx * 2, ry * 2
+    return None
+
+
+def _coverage_ratio(
+    target: tuple[float, float, float, float],
+    cover: tuple[float, float, float, float],
+) -> float:
+    tx, ty, tw, th = target
+    cx, cy, cw, ch = cover
+    if tw <= 0 or th <= 0:
+        return 0.0
+    ix0 = max(tx, cx)
+    iy0 = max(ty, cy)
+    ix1 = min(tx + tw, cx + cw)
+    iy1 = min(ty + th, cy + ch)
+    if ix1 <= ix0 or iy1 <= iy0:
+        return 0.0
+    return ((ix1 - ix0) * (iy1 - iy0)) / (tw * th)

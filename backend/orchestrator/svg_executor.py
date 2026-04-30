@@ -226,15 +226,21 @@ async def generate_svg_pages(
                 if report.passed:
                     if enable_visual_critic and not visual_attempted:
                         visual_attempted = True
-                        visual_outcome = await visual_check(
-                            svg_content,
-                            llm=llm,
-                            model=model,
-                            page_num=page_num,
-                            page_title=page_name,
-                            style=style,
-                            config=visual_critic_config,
+                        snapshot = set_usage_context(
+                            stage="visual_qa", page=page_num, attempt=attempt - 1
                         )
+                        try:
+                            visual_outcome = await visual_check(
+                                svg_content,
+                                llm=llm,
+                                model=model,
+                                page_num=page_num,
+                                page_title=page_name,
+                                style=style,
+                                config=visual_critic_config,
+                            )
+                        finally:
+                            reset_usage_context(snapshot)
                         if on_critic is not None:
                             await on_critic(
                                 page_num, attempt - 1, visual_outcome.report
