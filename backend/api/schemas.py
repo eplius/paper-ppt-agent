@@ -45,6 +45,7 @@ class GenerationOptions(BaseModel):
     detail_level: str = "normal"
     timeout_seconds: int | None = Field(default=None, ge=1)
     style_overrides: StyleOverrides | None = None
+    enable_visual_critic: bool = False
 
 
 class GenerateRequest(BaseModel):

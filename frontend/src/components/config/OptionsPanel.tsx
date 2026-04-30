@@ -1,4 +1,4 @@
-import { Settings2 } from "lucide-react";
+import { HelpCircle, Settings2 } from "lucide-react";
 import { useLocale } from "../../i18n";
 
 interface OptionsPanelProps {
@@ -9,6 +9,7 @@ interface OptionsPanelProps {
   detailLevel: string;
   timeoutSeconds: string;
   instruction: string;
+  enableVisualCritic: boolean;
   onCanvasFormatChange: (value: string) => void;
   onLanguageModeChange: (value: "zh" | "en" | "custom") => void;
   onCustomLanguageChange: (value: string) => void;
@@ -16,6 +17,7 @@ interface OptionsPanelProps {
   onDetailLevelChange: (value: string) => void;
   onTimeoutSecondsChange: (value: string) => void;
   onInstructionChange: (value: string) => void;
+  onEnableVisualCriticChange: (value: boolean) => void;
 }
 
 export function OptionsPanel(props: OptionsPanelProps) {
@@ -82,6 +84,36 @@ export function OptionsPanel(props: OptionsPanelProps) {
             onChange={(event) => props.onTimeoutSecondsChange(event.target.value)}
             placeholder={t("options.timeoutPlaceholder")}
           />
+        </label>
+        <label
+          className="form-field"
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: "0.5rem",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={props.enableVisualCritic}
+            onChange={(event) => props.onEnableVisualCriticChange(event.target.checked)}
+            style={{ width: "auto", margin: 0 }}
+          />
+          <span style={{ display: "inline-flex", alignItems: "center", gap: "0.25rem" }}>
+            {t("options.visualCritic")}
+            <span
+              title={t("options.visualCriticTooltip")}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                cursor: "help",
+                opacity: 0.6,
+              }}
+              aria-label={t("options.visualCriticTooltip")}
+            >
+              <HelpCircle size={14} />
+            </span>
+          </span>
         </label>
       </div>
       <label className="form-field">

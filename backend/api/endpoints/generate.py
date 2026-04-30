@@ -134,6 +134,7 @@ async def generate_presentation(request: GenerateRequest) -> GenerateResponse:
             and request.model_settings.deepseek_settings
             else None
         ),
+        enable_visual_critic=request.options.enable_visual_critic,
     )
 
     task = asyncio.create_task(_run_generation_job(job.id, pipeline_request))

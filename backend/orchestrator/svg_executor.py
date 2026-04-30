@@ -15,6 +15,7 @@ from pathlib import Path
 
 from backend.config import settings
 from backend.generator.svg_critic import CriticConfig, CriticReport, check_svg
+from backend.generator.visual_critic import VisualCriticConfig, visual_check
 from backend.llm import LLMMessage, LLMProvider, LLMResponse
 from backend.orchestrator.manuscript import split_manuscript_pages
 from backend.usage.tracker import reset_usage_context, set_usage_context
@@ -110,6 +111,8 @@ async def generate_svg_pages(
     critic_config: CriticConfig | None = None,
     on_critic: CriticCallback | None = None,
     figure_inventory: list[dict] | None = None,
+    enable_visual_critic: bool = False,
+    visual_critic_config: VisualCriticConfig | None = None,
 ) -> AsyncIterator[tuple[int, str]]:
     """Generate SVG code for each slide page sequentially."""
     system_prompt = PROMPT_PATH.read_text(encoding="utf-8")
@@ -211,13 +214,43 @@ async def generate_svg_pages(
             conversation.append(LLMMessage.assistant(f"```svg\n{svg_content}\n```"))
 
             best_svg = svg_content
+            visual_attempted = False
             for attempt in range(2, MAX_REPAIR_ATTEMPTS + 2):
                 report = check_svg(svg_content, critic_config)
                 if on_critic is not None:
                     await on_critic(page_num, attempt - 1, report)
+
+                # When the static critic is satisfied, run a single visual
+                # critic pass (if enabled). Visual issues become the next
+                # repair prompt without consuming a static-repair attempt.
                 if report.passed:
-                    best_svg = svg_content
-                    break
+                    if enable_visual_critic and not visual_attempted:
+                        visual_attempted = True
+                        visual_outcome = await visual_check(
+                            svg_content,
+                            llm=llm,
+                            model=model,
+                            page_num=page_num,
+                            page_title=page_name,
+                            style=style,
+                            config=visual_critic_config,
+                        )
+                        if on_critic is not None:
+                            await on_critic(
+                                page_num, attempt - 1, visual_outcome.report
+                            )
+                        if (
+                            visual_outcome.rendered
+                            and not visual_outcome.report.passed
+                        ):
+                            report = visual_outcome.report
+                            # fall through to the repair prompt below
+                        else:
+                            best_svg = svg_content
+                            break
+                    else:
+                        best_svg = svg_content
+                        break
 
                 conversation.append(
                     LLMMessage.user(

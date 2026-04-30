@@ -188,6 +188,7 @@ async def refine_presentation(request: RefineRequest) -> RefineResponse:
             and request.model_settings.deepseek_settings
             else None
         ),
+        enable_visual_critic=options.enable_visual_critic,
     )
 
     task = asyncio.create_task(_run_refine_job(job.id, pipeline_request))
