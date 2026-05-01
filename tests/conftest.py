@@ -25,6 +25,9 @@ def workspace_tmp() -> Path:
 
 @pytest.fixture(autouse=True)
 def isolate_state(workspace_tmp: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(settings, "runtime_dir", workspace_tmp / ".runtime")
+    settings.runtime_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(session_manager, "_state_file", settings.runtime_dir / "session_state.json")
     monkeypatch.setattr(settings, "workspaces_dir", workspace_tmp / "workspaces")
     settings.workspaces_dir.mkdir(parents=True, exist_ok=True)
     session_manager.clear()

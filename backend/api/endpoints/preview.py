@@ -45,9 +45,11 @@ def _build_preview_response(
     status_value: str,
 ) -> PreviewResponse:
     slides: list[PreviewSlide] = []
-    if project_dir:
-        slide_files = get_svg_files(project_dir, "final") or get_svg_files(project_dir, "output")
-        source = "final" if get_svg_files(project_dir, "final") else "output"
+    if project_dir and project_dir.exists():
+        final_files = get_svg_files(project_dir, "final")
+        output_files = get_svg_files(project_dir, "output")
+        slide_files = final_files or output_files
+        source = "final" if final_files else "output"
         for index, svg_path in enumerate(slide_files, start=1):
             prepared_path = prepare_svg_file_for_render(svg_path)
             try:
@@ -63,6 +65,9 @@ def _build_preview_response(
                 )
             )
 
+    if not slides:
+        slides = _slides_from_retained_events(job_id)
+
     return PreviewResponse(
         job_id=job_id,
         project_dir=str(project_dir) if project_dir else None,
@@ -70,6 +75,34 @@ def _build_preview_response(
         output_path=output_path,
         status=status_value,
     )
+
+
+def _slides_from_retained_events(job_id: str) -> list[PreviewSlide]:
+    """Recover previews from retained WebSocket slide events.
+
+    Older failed/cancelled jobs may have had their workspace deleted before we
+    started preserving project directories. The event ring can still contain
+    the SVG preview payloads that were sent live to the browser, so use those
+    as a best-effort fallback.
+    """
+    slides_by_index: dict[int, PreviewSlide] = {}
+    for event in session_manager.get_events_after(job_id, 0):
+        if event.get("type") != "slide_ready":
+            continue
+        data = event.get("data")
+        if not isinstance(data, dict) or not isinstance(data.get("svg"), str):
+            continue
+        try:
+            index = int(data.get("page") or len(slides_by_index) + 1)
+        except (TypeError, ValueError):
+            index = len(slides_by_index) + 1
+        slides_by_index[index] = PreviewSlide(
+            index=index,
+            name=f"slide_{index}",
+            source="event",
+            content=data["svg"],
+        )
+    return [slides_by_index[index] for index in sorted(slides_by_index)]
 
 
 def _resolve_workspace_path(raw_path: str) -> Path | None:

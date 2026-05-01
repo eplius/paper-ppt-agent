@@ -179,3 +179,48 @@ def test_preview_and_websocket_receive_slide_events(client, pdf_bytes: bytes, mo
     assert preview_response.status_code == 200
     slides = preview_response.json()["slides"]
     assert len(slides) == 1
+
+
+def test_preview_recovers_retained_slide_events_when_workspace_is_missing(client, workspace_tmp: Path):
+    file_path = workspace_tmp / "uploads" / "abc123" / "paper.pdf"
+    file_path.parent.mkdir(parents=True)
+    file_path.write_bytes(b"data")
+    session = session_manager.create_session(file_path, "pdf", "paper.pdf", 4, session_id="abc123")
+    job = session_manager.create_job(session.id)
+    svg_content = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text>Recovered</text></svg>'
+
+    session_manager.record_event(
+        job.id,
+        {
+            "type": "slide_ready",
+            "job_id": job.id,
+            "stage": "generation",
+            "status": "progress",
+            "message": "Generated slide 1/3",
+            "progress": 0.6,
+            "slides_completed": 1,
+            "total_slides": 3,
+            "data": {"page": 1, "svg": svg_content},
+        },
+        status="error",
+        message="Error code: 429",
+        slides_completed=1,
+        total_slides=3,
+        project_dir=None,
+        error="Error code: 429",
+    )
+
+    preview_response = client.get(f"/api/preview/{job.id}")
+
+    assert preview_response.status_code == 200
+    payload = preview_response.json()
+    assert payload["status"] == "error"
+    assert payload["project_dir"] is None
+    assert payload["slides"] == [
+        {
+            "index": 1,
+            "name": "slide_1",
+            "source": "event",
+            "content": svg_content,
+        }
+    ]
