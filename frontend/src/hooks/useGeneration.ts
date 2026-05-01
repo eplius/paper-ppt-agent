@@ -100,6 +100,7 @@ interface GenerationState {
   uploadFile: (file: File) => Promise<void>;
   startGeneration: (payload: GenerateRequestPayload) => Promise<string>;
   startRefine: (payload: RefineRequestPayload) => Promise<string>;
+  cancelCurrentRun: () => Promise<void>;
   connect: (jobId: string) => void;
   hydrateResult: (jobId: string) => Promise<void>;
   resumeCurrentRun: (targetJobId?: string) => Promise<boolean>;
@@ -453,6 +454,48 @@ export const useGeneration = create<GenerationState>()(
         sessionStorage.setItem(`${LIVE_JOB_STORAGE_PREFIX}${response.job_id}`, "1");
         get().syncHistory(response.job_id);
         return response.job_id;
+      },
+      async cancelCurrentRun() {
+        const jobId = get().jobId;
+        if (!jobId) {
+          return;
+        }
+        const currentRun = get().runs[jobId] ?? createRunSnapshot(jobId);
+        const status = currentRun.job?.status;
+        if (status && FINAL_JOB_STATUSES.has(status)) {
+          return;
+        }
+
+        const nextJob: JobStatus = {
+          status: "cancelling",
+          progress: currentRun.job?.progress ?? 0,
+          message: "Cancelling generation...",
+          slides_completed: currentRun.job?.slides_completed ?? currentRun.slides.length,
+          total_slides: currentRun.job?.total_slides ?? currentRun.slides.length,
+          output_path: currentRun.job?.output_path,
+          error: undefined,
+        };
+        const cancellingRun: RunSnapshot = {
+          ...currentRun,
+          job: nextJob,
+          error: undefined,
+        };
+        set((state) => ({
+          ...applyRunToCurrent(cancellingRun),
+          runs: {
+            ...state.runs,
+            [jobId]: cancellingRun,
+          },
+        }));
+        get().syncHistory(jobId);
+
+        try {
+          await cancelJob(jobId);
+        } catch (error) {
+          set({
+            error: error instanceof Error ? error.message : "Failed to cancel generation",
+          });
+        }
       },
       connect(jobId) {
         const existingSocket = get().socketsByJob[jobId];

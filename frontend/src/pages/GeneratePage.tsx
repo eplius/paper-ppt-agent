@@ -83,6 +83,7 @@ export function GeneratePage() {
     loadProviders,
     uploadFile,
     startGeneration,
+    cancelCurrentRun,
     connect,
     resumeCurrentRun,
     selectSlide,
@@ -109,6 +110,7 @@ export function GeneratePage() {
   const [timeoutSeconds, setTimeoutSeconds] = useState("");
   const [instruction, setInstruction] = useState("");
   const [enableVisualCritic, setEnableVisualCritic] = useState(false);
+  const [cancelLoading, setCancelLoading] = useState(false);
   const [secondaryPanel, setSecondaryPanel] = useState<SecondaryPanel | null>(null);
   const freshRequested = searchParams.get("fresh") === "1";
   const targetJobId = searchParams.get("job") ?? undefined;
@@ -134,6 +136,11 @@ export function GeneratePage() {
     }
     return undefined;
   }, [currentRunConfig, targetHistoryEntry]);
+  const canCancelCurrentRun = Boolean(
+    jobId &&
+      job &&
+      !["complete", "error", "cancelled"].includes(job.status),
+  );
 
   useEffect(() => {
     void loadProviders();
@@ -314,7 +321,8 @@ export function GeneratePage() {
               !provider ||
               !model.trim() ||
               !apiKey ||
-              (languageMode === "custom" && !customLanguage.trim())
+              (languageMode === "custom" && !customLanguage.trim()) ||
+              canCancelCurrentRun
             }
             onClick={async () => {
               if (!uploadSession) {
@@ -360,6 +368,25 @@ export function GeneratePage() {
           >
             {t("studio.launch")}
           </button>
+          {canCancelCurrentRun ? (
+            <button
+              type="button"
+              className="secondary-button danger-button full-width cancel-generation-button"
+              disabled={cancelLoading || job?.status === "cancelling"}
+              onClick={async () => {
+                setCancelLoading(true);
+                try {
+                  await cancelCurrentRun();
+                } finally {
+                  setCancelLoading(false);
+                }
+              }}
+            >
+              {cancelLoading || job?.status === "cancelling"
+                ? t("studio.canceling")
+                : t("studio.cancel")}
+            </button>
+          ) : null}
           {error ? <p className="error-text">{error}</p> : null}
         </div>
       </section>
