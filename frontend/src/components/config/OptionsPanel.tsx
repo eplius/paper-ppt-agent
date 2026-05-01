@@ -1,4 +1,4 @@
-import { Settings2 } from "lucide-react";
+import { Eye, HelpCircle, Settings2 } from "lucide-react";
 import { useLocale } from "../../i18n";
 
 interface OptionsPanelProps {
@@ -9,6 +9,7 @@ interface OptionsPanelProps {
   detailLevel: string;
   timeoutSeconds: string;
   instruction: string;
+  enableVisualCritic: boolean;
   onCanvasFormatChange: (value: string) => void;
   onLanguageModeChange: (value: "zh" | "en" | "custom") => void;
   onCustomLanguageChange: (value: string) => void;
@@ -16,6 +17,7 @@ interface OptionsPanelProps {
   onDetailLevelChange: (value: string) => void;
   onTimeoutSecondsChange: (value: string) => void;
   onInstructionChange: (value: string) => void;
+  onEnableVisualCriticChange: (value: boolean) => void;
 }
 
 export function OptionsPanel(props: OptionsPanelProps) {
@@ -82,6 +84,38 @@ export function OptionsPanel(props: OptionsPanelProps) {
             onChange={(event) => props.onTimeoutSecondsChange(event.target.value)}
             placeholder={t("options.timeoutPlaceholder")}
           />
+        </label>
+        <label className="visual-qa-field">
+          <span
+            className={`visual-qa-control ${
+              props.enableVisualCritic ? "visual-qa-control-active" : ""
+            }`}
+          >
+            <input
+              className="visual-qa-input"
+              type="checkbox"
+              checked={props.enableVisualCritic}
+              onChange={(event) => props.onEnableVisualCriticChange(event.target.checked)}
+            />
+            <span className="visual-qa-icon" aria-hidden="true">
+              <Eye size={16} />
+            </span>
+            <span className="visual-qa-copy">
+              <span className="visual-qa-name">{t("options.visualCritic")}</span>
+            </span>
+            <span
+              className="visual-qa-help"
+              data-tooltip={t("options.visualCriticTooltip")}
+              aria-label={t("options.visualCriticTooltip")}
+              tabIndex={0}
+              onClick={(event) => event.preventDefault()}
+            >
+              <HelpCircle size={14} />
+            </span>
+            <span className="visual-qa-switch" aria-hidden="true">
+              <span />
+            </span>
+          </span>
         </label>
       </div>
       <label className="form-field">

@@ -100,6 +100,7 @@ export function GeneratePage() {
   const [detailLevel, setDetailLevel] = useState("normal");
   const [timeoutSeconds, setTimeoutSeconds] = useState("");
   const [instruction, setInstruction] = useState("");
+  const [enableVisualCritic, setEnableVisualCritic] = useState(false);
   const [secondaryPanel, setSecondaryPanel] = useState<SecondaryPanel | null>(null);
   const freshRequested = searchParams.get("fresh") === "1";
   const targetJobId = searchParams.get("job") ?? undefined;
@@ -212,6 +213,7 @@ export function GeneratePage() {
     setNumPages(options.num_pages ? String(options.num_pages) : "");
     setDetailLevel(options.detail_level || "normal");
     setTimeoutSeconds(options.timeout_seconds ? String(options.timeout_seconds) : "");
+    setEnableVisualCritic(Boolean(options.enable_visual_critic));
   }, [selectedRunConfig, targetJobId]);
 
   useEffect(() => {
@@ -262,6 +264,7 @@ export function GeneratePage() {
             detailLevel={detailLevel}
             timeoutSeconds={timeoutSeconds}
             instruction={instruction}
+            enableVisualCritic={enableVisualCritic}
             onCanvasFormatChange={setCanvasFormat}
             onLanguageModeChange={setLanguageMode}
             onCustomLanguageChange={setCustomLanguage}
@@ -269,6 +272,7 @@ export function GeneratePage() {
             onDetailLevelChange={setDetailLevel}
             onTimeoutSecondsChange={setTimeoutSeconds}
             onInstructionChange={setInstruction}
+            onEnableVisualCriticChange={setEnableVisualCritic}
           />
           <div className="studio-secondary-actions">
             <button
@@ -332,6 +336,7 @@ export function GeneratePage() {
                     styleOverrides.palette || styleOverrides.font || styleOverrides.density
                       ? styleOverrides
                       : undefined,
+                  enable_visual_critic: enableVisualCritic,
                 },
               });
               connect(jobId);

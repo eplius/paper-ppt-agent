@@ -16,6 +16,9 @@ router = APIRouter()
 
 async def _iterate_refine_pipeline(job_id: str, request: Any) -> None:
     from backend.orchestrator.pipeline import run_refine_pipeline
+    from backend.usage.tracker import set_usage_context
+
+    set_usage_context(job_id=job_id)
 
     async for event in run_refine_pipeline(request):
         current_job = session_manager.get_job(job_id)
@@ -188,6 +191,7 @@ async def refine_presentation(request: RefineRequest) -> RefineResponse:
             and request.model_settings.deepseek_settings
             else None
         ),
+        enable_visual_critic=options.enable_visual_critic,
     )
 
     task = asyncio.create_task(_run_refine_job(job.id, pipeline_request))

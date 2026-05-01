@@ -49,6 +49,7 @@ class GenerationRequest:
     timeout_seconds: int | None = None
     style_overrides: dict | None = None  # {palette: [...], font: "...", density: "..."}
     deepseek_settings: dict | None = None
+    enable_visual_critic: bool = False
 
 
 async def run_pipeline(
@@ -189,6 +190,7 @@ async def run_pipeline(
             extra_instruction=_build_style_overrides_block(request.style_overrides),
             on_critic=_on_critic,
             figure_inventory=figure_inventory,
+            enable_visual_critic=request.enable_visual_critic,
         ):
             generated += 1
             progress = 0.40 + (generated / total_pages) * 0.35
@@ -358,6 +360,7 @@ class RefineRequest:
     allow_structure_changes: bool = False
     style_overrides: dict | None = None
     deepseek_settings: dict | None = None
+    enable_visual_critic: bool = False
 
 
 async def run_refine_pipeline(
@@ -492,6 +495,7 @@ async def run_refine_pipeline(
         target_pages=set(target_pages) if target_pages and not request.allow_structure_changes else None,
         on_critic=_refine_on_critic,
         figure_inventory=refine_inventory,
+        enable_visual_critic=request.enable_visual_critic,
     ):
         generated += 1
         progress = generation_start + (generated / max(pages_to_generate, 1)) * generation_span

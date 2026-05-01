@@ -2,8 +2,13 @@ from __future__ import annotations
 
 import pytest
 
+from backend.generator.svg_critic import CriticReport
+from backend.generator.visual_critic import VisualCheckOutcome
 from backend.llm import LLMResponse
+from backend.llm.types import ProviderInfo
+from backend.orchestrator import svg_executor
 from backend.orchestrator.svg_executor import generate_svg_pages
+from backend.usage.tracker import current_usage_context
 
 
 class _FakeLLM:
@@ -17,6 +22,44 @@ class _FakeLLM:
         response = self._responses[min(self.calls, len(self._responses) - 1)]
         self.calls += 1
         return LLMResponse(content=response)
+
+
+class _DeepSeekLLM(_FakeLLM):
+    def get_provider_info(self) -> ProviderInfo:
+        return ProviderInfo(name="deepseek", display_name="DeepSeek")
+
+
+def _svg(body: str) -> str:
+    return (
+        '```svg\n<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720">'
+        '<rect width="1280" height="720" fill="#fff"/>'
+        f"{body}</svg>\n```"
+    )
+
+
+@pytest.mark.asyncio
+async def test_generate_svg_pages_adds_deepseek_executor_guidance(
+    workspace_tmp,
+) -> None:
+    manuscript = "# Page One\n\n- Mechanism\n- Evidence"
+    llm = _DeepSeekLLM([_svg('<text x="100" y="100" font-size="24">ok</text>')])
+
+    pages = [
+        page_num
+        async for page_num, _ in generate_svg_pages(
+            "# Design",
+            manuscript,
+            workspace_tmp,
+            llm,
+            "deepseek-v4-pro",
+            detail_level="very_high",
+        )
+    ]
+
+    assert pages == [1]
+    initial_prompt = llm.message_snapshots[0][1].content
+    assert "DeepSeek Execution Calibration" in initial_prompt
+    assert "preserve depth without overcrowding" in initial_prompt
 
 
 @pytest.mark.asyncio
@@ -75,3 +118,132 @@ async def test_generate_svg_pages_fails_after_bounded_same_page_retries(
 
     assert llm.calls == 3
     assert not list((workspace_tmp / "svg_output").glob("*.svg"))
+
+
+@pytest.mark.asyncio
+async def test_visual_critic_uses_distinct_usage_stage(
+    workspace_tmp,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manuscript = "# Page One\n\nBody"
+    valid_svg = (
+        '```svg\n<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720">'
+        '<rect width="1280" height="720" fill="#fff"/>'
+        '<text x="100" y="100" font-size="24">ok</text></svg>\n```'
+    )
+    llm = _FakeLLM([valid_svg])
+    seen_contexts: list[dict] = []
+
+    async def fake_visual_check(*args, **kwargs) -> VisualCheckOutcome:
+        seen_contexts.append(current_usage_context())
+        return VisualCheckOutcome(rendered=True, report=CriticReport(passed=True))
+
+    monkeypatch.setattr(svg_executor, "visual_check", fake_visual_check)
+
+    pages = [
+        page_num
+        async for page_num, _ in generate_svg_pages(
+            "# Design",
+            manuscript,
+            workspace_tmp,
+            llm,
+            "fake-model",
+            enable_visual_critic=True,
+        )
+    ]
+
+    assert pages == [1]
+    assert len(seen_contexts) == 1
+    assert seen_contexts[0]["stage"] == "visual_qa"
+    assert seen_contexts[0]["page"] == 1
+    assert seen_contexts[0]["attempt"] == 1
+
+
+def test_resolve_fig_tokens_rejects_mismatched_figure_number() -> None:
+    page = "## Analysis\n\n[[FIG:fig_006_p8]] — 图4 跨数据集对比"
+    inventory = [
+        {
+            "path": "../sources/images/fig_006_p8.png",
+            "caption": "Figure 3. Training curves of Mario vs fixed template.",
+        }
+    ]
+
+    rewritten, used, rejected = svg_executor._resolve_fig_tokens(page, inventory)
+
+    assert used == []
+    assert "REJECTED_FIG:fig_006_p8" in rewritten
+    assert rejected
+    assert "requested figure 4" in rejected[0]
+
+
+@pytest.mark.asyncio
+async def test_generate_svg_pages_repairs_unallowed_paper_figure_href(
+    workspace_tmp,
+) -> None:
+    manuscript = "# Page One\n\nNo real figure token on this page."
+    wrong = _svg(
+        '<image href="../sources/images/fig_999.png" x="100" y="100" width="300" height="200"/>'
+        '<text x="100" y="360" font-size="24">wrong</text>'
+    )
+    fixed = _svg(
+        '<rect x="100" y="100" width="300" height="200" fill="#e5eef8"/>'
+        '<text x="100" y="360" font-size="24">native summary</text>'
+    )
+    llm = _FakeLLM([wrong, fixed])
+
+    pages = [
+        page_num
+        async for page_num, svg in generate_svg_pages(
+            "# Design", manuscript, workspace_tmp, llm, "fake-model"
+        )
+        if "native summary" in svg
+    ]
+
+    assert pages == [1]
+    assert llm.calls == 2
+    repair_prompt = llm.message_snapshots[1][-1].content
+    assert "paper_figure_not_allowed" in repair_prompt
+
+
+@pytest.mark.asyncio
+async def test_generate_svg_pages_repairs_cross_slide_reused_paper_figure(
+    workspace_tmp,
+) -> None:
+    manuscript = (
+        "# Page One\n\n[[FIG:fig_001_p1]] — Figure 1 overview\n\n---\n\n"
+        "# Page Two\n\n[[FIG:fig_001_p1]] — Figure 1 detail"
+    )
+    figure_inventory = [
+        {
+            "path": "../sources/images/fig_001_p1.png",
+            "caption": "Figure 1. Overview and detail panels.",
+        }
+    ]
+    repeated = _svg(
+        '<image href="../sources/images/fig_001_p1.png" x="100" y="100" width="300" height="200"/>'
+        '<text x="100" y="360" font-size="24">paper figure</text>'
+    )
+    fixed_second = _svg(
+        '<rect x="100" y="100" width="300" height="200" fill="#e5eef8"/>'
+        '<text x="100" y="360" font-size="24">redrawn detail</text>'
+    )
+    llm = _FakeLLM([repeated, repeated, fixed_second])
+
+    slides = [
+        svg
+        async for _, svg in generate_svg_pages(
+            "# Design",
+            manuscript,
+            workspace_tmp,
+            llm,
+            "fake-model",
+            figure_inventory=figure_inventory,
+        )
+    ]
+
+    assert len(slides) == 2
+    assert "fig_001_p1.png" in slides[0]
+    assert "redrawn detail" in slides[1]
+    assert llm.calls == 3
+    repair_prompt = llm.message_snapshots[2][-1].content
+    assert "paper_figure_reused_from_previous_slide" in repair_prompt

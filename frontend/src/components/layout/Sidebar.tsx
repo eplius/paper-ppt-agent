@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { BarChart3, ChevronLeft, ChevronRight, Home, Layers3, Plus } from "lucide-react";
+import { BarChart3, ChevronLeft, ChevronRight, Home, Layers3 } from "lucide-react";
 import { useGeneration } from "../../hooks/useGeneration";
 import { useLocale } from "../../i18n";
 import { translateStageStatus } from "../../lib/i18nStatus";
@@ -89,16 +89,6 @@ export function Sidebar({ collapsed = false, onCollapsedChange }: SidebarProps) 
             </Link>
           );
         })}
-        <Link
-          to="/generate?fresh=1"
-          className={`sidebar-link sidebar-new-run-link ${isFreshEntryActive ? "sidebar-link-active" : ""}`}
-          onClick={() => reset()}
-          title={t("result.newRun")}
-          aria-label={t("result.newRun")}
-        >
-          <Plus size={17} strokeWidth={1.8} />
-          <span className="sidebar-link-label">{t("result.newRun")}</span>
-        </Link>
       </div>
 
       <div className="sidebar-section sidebar-history-section">

@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from backend.llm import LLMResponse
+from backend.llm.types import ProviderInfo
 from backend.orchestrator import strategist_agent
 
 
@@ -15,6 +16,11 @@ class _FakeLLM:
         self.calls.append({"messages": messages, "model": model, **kwargs})
         index = min(len(self.calls) - 1, len(self.responses) - 1)
         return LLMResponse(content=self.responses[index])
+
+
+class _DeepSeekLLM(_FakeLLM):
+    def get_provider_info(self) -> ProviderInfo:
+        return ProviderInfo(name="deepseek", display_name="DeepSeek")
 
 
 def _valid_design_spec() -> str:
@@ -77,3 +83,19 @@ async def test_create_design_spec_fails_after_invalid_retries() -> None:
         )
 
     assert len(llm.calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_create_design_spec_adds_deepseek_strategy_guidance() -> None:
+    llm = _DeepSeekLLM([_valid_design_spec()])
+
+    await strategist_agent.create_design_spec(
+        "# Title\n\n- Mechanism\n- Evidence",
+        llm,
+        "deepseek-v4-pro",
+        detail_level="very_high",
+    )
+
+    user_prompt = llm.calls[0]["messages"][-1].content
+    assert "DeepSeek Calibration" in user_prompt
+    assert "preserve the manuscript's analytical depth" in user_prompt
