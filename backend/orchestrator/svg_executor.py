@@ -37,6 +37,11 @@ PROMPT_PATH = Path(__file__).parent / "prompts" / "executor.md"
 # How many repair attempts we're willing to spend per page. 1 = initial only.
 MAX_REPAIR_ATTEMPTS = 2
 
+# Max prior page exchanges kept in the conversation (sliding window).
+# Each page generates 1 user + 1 assistant exchange (plus up to 2 repair rounds).
+# Keeping 2 pages of context balances style consistency vs. token cost.
+MAX_PRIOR_PAGES_IN_CONTEXT = 2
+
 # Initial response plus bounded same-page retries when no SVG can be extracted.
 MAX_SVG_EXTRACTION_ATTEMPTS = 3
 
@@ -298,10 +303,25 @@ async def generate_svg_pages(
         ),
     ]
 
+    # Track how many page exchanges we've appended beyond the preamble
+    # (system + design-spec user + ack assistant = 3 preamble messages).
+    _preamble_len = len(conversation)
+
     for i, page_content in enumerate(pages):
         page_num = i + 1
         if target_pages is not None and page_num not in target_pages:
             continue
+
+        # Sliding window: trim old page exchanges, keeping only the most
+        # recent ones to avoid unbounded context growth.  Each page
+        # produces up to (1 + MAX_REPAIR_ATTEMPTS) * 2 messages
+        # (user prompt + assistant SVG per round).
+        _max_context_msgs = MAX_PRIOR_PAGES_IN_CONTEXT * (1 + MAX_REPAIR_ATTEMPTS) * 2
+        _beyond_preamble = len(conversation) - _preamble_len
+        if _beyond_preamble > _max_context_msgs:
+            _trim = _beyond_preamble - _max_context_msgs
+            conversation[:] = conversation[:_preamble_len] + conversation[_preamble_len + _trim:]
+
         page_name = _make_page_name(page_num, page_content)
         rewritten_content, used_figures, rejected_figures = _resolve_fig_tokens(
             page_content,

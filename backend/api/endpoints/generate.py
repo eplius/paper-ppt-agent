@@ -16,6 +16,9 @@ router = APIRouter()
 
 async def _iterate_pipeline(job_id: str, request: Any) -> None:
     from backend.orchestrator.pipeline import run_pipeline
+    from backend.usage.tracker import set_usage_context
+
+    set_usage_context(job_id=job_id)
 
     async for event in run_pipeline(request):
         current_job = session_manager.get_job(job_id)
