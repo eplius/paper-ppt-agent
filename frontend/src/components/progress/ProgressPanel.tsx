@@ -36,7 +36,6 @@ export function ProgressPanel({ job, connectionStatus }: ProgressPanelProps) {
       <div className="panel-header-row" style={{ justifyContent: "space-between" }}>
         <div>
           <p className="panel-title">{t("progress.title")}</p>
-          <p className="muted-copy" style={{ marginTop: "0.25rem" }}>{t("progress.body")}</p>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.82rem", color: "var(--muted)" }}>
           <span

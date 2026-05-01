@@ -88,7 +88,27 @@ def _round_num(path: Path) -> int:
 
 @router.get("/versions/{job_id}", response_model=VersionsResponse)
 async def list_versions(job_id: str) -> VersionsResponse:
-    project_dir = _resolve_project_dir(job_id)
+    job = session_manager.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found.")
+    if not job.project_dir:
+        return VersionsResponse(
+            job_id=job_id,
+            project_dir=None,
+            current_slide_count=0,
+            versions=[],
+        )
+    try:
+        project_dir = _resolve_project_dir(job_id)
+    except HTTPException as exc:
+        if exc.status_code == status.HTTP_404_NOT_FOUND:
+            return VersionsResponse(
+                job_id=job_id,
+                project_dir=job.project_dir,
+                current_slide_count=0,
+                versions=[],
+            )
+        raise
     rounds = _list_rounds(project_dir)
     items: list[VersionItem] = []
     for round_dir in rounds:

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { DeepSeekSettings, ProviderListItem } from "../../lib/types";
+import type { DeepSeekSettings, OpenAISettings, ProviderListItem } from "../../lib/types";
 import { useLocale } from "../../i18n";
 import { Bot, Cpu, Zap, Globe, Key, Eye, EyeOff, BrainCircuit } from "lucide-react";
 
@@ -10,11 +10,13 @@ interface ModelSelectorProps {
   baseUrl: string;
   apiKey: string;
   deepSeekSettings: DeepSeekSettings;
+  openAISettings: OpenAISettings;
   onProviderChange: (provider: string) => void;
   onModelChange: (model: string) => void;
   onBaseUrlChange: (baseUrl: string) => void;
   onApiKeyChange: (apiKey: string) => void;
   onDeepSeekSettingsChange: (settings: DeepSeekSettings) => void;
+  onOpenAISettingsChange: (settings: OpenAISettings) => void;
 }
 
 export function ModelSelector({
@@ -24,17 +26,20 @@ export function ModelSelector({
   baseUrl,
   apiKey,
   deepSeekSettings,
+  openAISettings,
   onProviderChange,
   onModelChange,
   onBaseUrlChange,
   onApiKeyChange,
   onDeepSeekSettingsChange,
+  onOpenAISettingsChange,
 }: ModelSelectorProps) {
   const selectedProvider = providers.find((item) => item.name === provider);
   const { t } = useLocale();
   const datalistId = `model-options-${provider || "default"}`;
   const [showKey, setShowKey] = useState(false);
   const isDeepSeek = provider === "deepseek";
+  const showOpenAISettings = provider === "openai" && isGpt5OrNewer(model);
 
   return (
     <section className="panel">
@@ -124,18 +129,33 @@ export function ModelSelector({
           </div>
           <p className="panel-support-text">{t("model.deepseekBody")}</p>
 
-          <label className="checkbox-row deepseek-toggle-row">
-            <input
-              type="checkbox"
-              checked={deepSeekSettings.thinking_enabled}
-              onChange={(event) =>
-                onDeepSeekSettingsChange({
-                  ...deepSeekSettings,
-                  thinking_enabled: event.target.checked,
-                })
-              }
-            />
-            <span>{t("model.deepseekThinking")}</span>
+          <label className="visual-qa-field deepseek-toggle-row">
+            <span
+              className={`visual-qa-control ${
+                deepSeekSettings.thinking_enabled ? "visual-qa-control-active" : ""
+              }`}
+            >
+              <input
+                className="visual-qa-input"
+                type="checkbox"
+                checked={deepSeekSettings.thinking_enabled}
+                onChange={(event) =>
+                  onDeepSeekSettingsChange({
+                    ...deepSeekSettings,
+                    thinking_enabled: event.target.checked,
+                  })
+                }
+              />
+              <span className="visual-qa-icon" aria-hidden="true">
+                <BrainCircuit size={16} />
+              </span>
+              <span className="visual-qa-copy">
+                <span className="visual-qa-name">{t("model.deepseekThinking")}</span>
+              </span>
+              <span className="visual-qa-switch" aria-hidden="true">
+                <span />
+              </span>
+            </span>
           </label>
 
           <label className="form-field">
@@ -159,6 +179,67 @@ export function ModelSelector({
           </label>
         </div>
       ) : null}
+
+      {showOpenAISettings ? (
+        <div className="deepseek-settings">
+          <div className="panel-title-row">
+            <BrainCircuit size={15} className="panel-title-icon" />
+            <p className="panel-title">{t("model.openaiTitle")}</p>
+          </div>
+
+          <label className="form-field">
+            <span>{t("model.openaiReasoning")}</span>
+            <div className="form-field-icon">
+              <BrainCircuit size={14} className="field-icon" />
+              <select
+                value={openAISettings.reasoning_effort}
+                onChange={(event) =>
+                  onOpenAISettingsChange({
+                    ...openAISettings,
+                    reasoning_effort: event.target.value as OpenAISettings["reasoning_effort"],
+                  })
+                }
+              >
+                <option value="none">{t("model.openaiReasoningNone")}</option>
+                <option value="low">{t("model.openaiReasoningLow")}</option>
+                <option value="medium">{t("model.openaiReasoningMedium")}</option>
+                <option value="high">{t("model.openaiReasoningHigh")}</option>
+                <option value="xhigh">{t("model.openaiReasoningXhigh")}</option>
+              </select>
+            </div>
+          </label>
+
+          <label className="form-field">
+            <span>{t("model.openaiVerbosity")}</span>
+            <div className="form-field-icon">
+              <Zap size={14} className="field-icon" />
+              <select
+                value={openAISettings.verbosity}
+                onChange={(event) =>
+                  onOpenAISettingsChange({
+                    ...openAISettings,
+                    verbosity: event.target.value as OpenAISettings["verbosity"],
+                  })
+                }
+              >
+                <option value="low">{t("model.openaiVerbosityLow")}</option>
+                <option value="medium">{t("model.openaiVerbosityMedium")}</option>
+                <option value="high">{t("model.openaiVerbosityHigh")}</option>
+              </select>
+            </div>
+          </label>
+        </div>
+      ) : null}
     </section>
   );
+}
+
+function isGpt5OrNewer(model: string) {
+  const normalized = model.trim().toLowerCase();
+  if (!normalized.startsWith("gpt-")) {
+    return false;
+  }
+  const version = normalized.slice(4).split("-", 1)[0];
+  const parsed = Number.parseFloat(version);
+  return Number.isFinite(parsed) ? parsed >= 5 : normalized.startsWith("gpt-5");
 }

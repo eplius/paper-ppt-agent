@@ -139,6 +139,107 @@ async def test_openai_provider_adds_deepseek_reasoning_kwargs(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_official_openai_uses_max_completion_tokens_and_gpt5_settings(monkeypatch):
+    captured: dict[str, object] = {}
+
+    async def fake_create(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="ok"))],
+            usage=None,
+        )
+
+    class FakeAsyncOpenAI:
+        def __init__(self, api_key: str, base_url: str | None = None) -> None:
+            captured["base_url"] = base_url
+            self.chat = SimpleNamespace(
+                completions=SimpleNamespace(create=fake_create),
+            )
+            self.beta = SimpleNamespace(
+                chat=SimpleNamespace(
+                    completions=SimpleNamespace(parse=fake_create),
+                ),
+            )
+            self.models = SimpleNamespace(list=lambda: fake_create())
+
+    async def passthrough_retry(func):
+        return await func()
+
+    monkeypatch.setattr("backend.llm.provider_openai.AsyncOpenAI", FakeAsyncOpenAI)
+    monkeypatch.setattr("backend.llm.provider_openai.call_with_retry", passthrough_retry)
+
+    provider = OpenAIProvider(
+        api_key="sk-test",
+        provider_name="openai",
+        openai_settings={
+            "reasoning_effort": "high",
+            "verbosity": "medium",
+        },
+    )
+    response = await provider.chat(
+        messages=[],
+        model="gpt-5.5",
+        temperature=0.2,
+        max_tokens=4096,
+    )
+
+    assert response.content == "ok"
+    assert captured["base_url"] is None
+    assert captured["max_completion_tokens"] == 4096
+    assert "max_tokens" not in captured
+    assert "temperature" not in captured
+    assert captured["reasoning_effort"] == "high"
+    assert captured["verbosity"] == "medium"
+
+
+@pytest.mark.asyncio
+async def test_official_openai_falls_back_to_max_tokens(monkeypatch):
+    captured_calls: list[dict[str, object]] = []
+
+    async def fake_create(**kwargs):
+        captured_calls.append(dict(kwargs))
+        if "max_completion_tokens" in kwargs:
+            raise TypeError("unexpected keyword argument 'max_completion_tokens'")
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="ok"))],
+            usage=None,
+        )
+
+    class FakeAsyncOpenAI:
+        def __init__(self, api_key: str, base_url: str | None = None) -> None:
+            self.chat = SimpleNamespace(
+                completions=SimpleNamespace(create=fake_create),
+            )
+            self.beta = SimpleNamespace(
+                chat=SimpleNamespace(
+                    completions=SimpleNamespace(parse=fake_create),
+                ),
+            )
+            self.models = SimpleNamespace(list=lambda: fake_create())
+
+    async def passthrough_retry(func):
+        return await func()
+
+    monkeypatch.setattr("backend.llm.provider_openai.AsyncOpenAI", FakeAsyncOpenAI)
+    monkeypatch.setattr("backend.llm.provider_openai.call_with_retry", passthrough_retry)
+
+    provider = OpenAIProvider(api_key="sk-test", provider_name="openai")
+    response = await provider.chat(messages=[], model="gpt-5.5", max_tokens=2048)
+
+    assert response.content == "ok"
+    assert captured_calls[0]["max_completion_tokens"] == 2048
+    assert captured_calls[0]["reasoning_effort"] == "medium"
+    assert captured_calls[0]["verbosity"] == "high"
+    assert captured_calls[1]["max_completion_tokens"] == 2048
+    assert "reasoning_effort" not in captured_calls[1]
+    assert "verbosity" not in captured_calls[1]
+    assert captured_calls[2]["max_tokens"] == 2048
+    assert "max_completion_tokens" not in captured_calls[2]
+    assert "reasoning_effort" not in captured_calls[2]
+    assert "verbosity" not in captured_calls[2]
+
+
+@pytest.mark.asyncio
 async def test_openai_provider_respects_configured_deepseek_thinking(monkeypatch):
     captured: dict[str, object] = {}
 

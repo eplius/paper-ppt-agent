@@ -23,6 +23,13 @@ from .types import (
     TokenUsage,
 )
 
+OPENAI_GPT_REASONING_EFFORTS = {"none", "low", "medium", "high", "xhigh"}
+OPENAI_GPT_VERBOSITIES = {"low", "medium", "high"}
+DEFAULT_OPENAI_GPT_SETTINGS = {
+    "reasoning_effort": "medium",
+    "verbosity": "high",
+}
+
 
 def normalize_openai_base_url(base_url: str | None) -> str | None:
     """Return an SDK base URL from a user-entered OpenAI-compatible URL.
@@ -49,12 +56,14 @@ class OpenAIProvider(LLMProvider):
         base_url: str | None = None,
         provider_name: str = "openai",
         deepseek_settings: dict | None = None,
+        openai_settings: dict | None = None,
     ) -> None:
         normalized_base_url = normalize_openai_base_url(base_url)
         self._client = AsyncOpenAI(api_key=api_key, base_url=normalized_base_url)
         self._provider_name = provider_name
         self._base_url = (normalized_base_url or "").rstrip("/")
         self._deepseek_settings = deepseek_settings
+        self._openai_settings = openai_settings
 
     def _is_deepseek_request(self, model: str | None = None) -> bool:
         return (
@@ -65,6 +74,39 @@ class OpenAIProvider(LLMProvider):
 
     def _normalize_max_tokens(self, model: str, max_tokens: int | None) -> int | None:
         return max_tokens
+
+    def _is_official_openai_request(self, model: str | None = None) -> bool:
+        if self._is_deepseek_request(model):
+            return False
+        if self._provider_name != "openai":
+            return False
+        return not self._base_url or "api.openai.com" in self._base_url
+
+    def _is_openai_gpt5_or_newer(self, model: str | None) -> bool:
+        normalized = (model or "").lower().strip()
+        if not normalized.startswith("gpt-"):
+            return False
+        version = normalized[4:].split("-", 1)[0]
+        try:
+            return float(version) >= 5
+        except ValueError:
+            return normalized.startswith("gpt-5")
+
+    def _normalized_openai_settings(self) -> dict[str, str]:
+        raw = self._openai_settings or {}
+        reasoning_effort = str(
+            raw.get("reasoning_effort")
+            or DEFAULT_OPENAI_GPT_SETTINGS["reasoning_effort"]
+        )
+        verbosity = str(raw.get("verbosity") or DEFAULT_OPENAI_GPT_SETTINGS["verbosity"])
+        if reasoning_effort not in OPENAI_GPT_REASONING_EFFORTS:
+            reasoning_effort = DEFAULT_OPENAI_GPT_SETTINGS["reasoning_effort"]
+        if verbosity not in OPENAI_GPT_VERBOSITIES:
+            verbosity = DEFAULT_OPENAI_GPT_SETTINGS["verbosity"]
+        return {
+            "reasoning_effort": reasoning_effort,
+            "verbosity": verbosity,
+        }
 
     def _build_chat_kwargs(
         self,
@@ -77,18 +119,124 @@ class OpenAIProvider(LLMProvider):
     ) -> dict:
         normalized_max_tokens = self._normalize_max_tokens(model, max_tokens)
         is_deepseek = self._is_deepseek_request(model)
+        is_official_openai = self._is_official_openai_request(model)
+        is_openai_gpt5 = is_official_openai and self._is_openai_gpt5_or_newer(model)
         kwargs: dict = {
             "model": model,
             "messages": self._convert_messages(messages),
-            "temperature": temperature,
         }
+        if not is_openai_gpt5:
+            kwargs["temperature"] = temperature
         if normalized_max_tokens:
-            kwargs["max_tokens"] = normalized_max_tokens
+            if is_official_openai:
+                kwargs["max_completion_tokens"] = normalized_max_tokens
+            else:
+                kwargs["max_tokens"] = normalized_max_tokens
+        if is_openai_gpt5:
+            kwargs.update(self._normalized_openai_settings())
         if is_deepseek:
             self._apply_deepseek_thinking_kwargs(kwargs, model)
         if stream:
             kwargs["stream"] = True
         return kwargs
+
+    def _fallback_chat_kwargs(self, kwargs: dict) -> list[dict]:
+        fallbacks: list[dict] = []
+
+        without_gpt_controls = dict(kwargs)
+        removed_gpt_controls = False
+        for key in ("reasoning_effort", "verbosity"):
+            if key in without_gpt_controls:
+                without_gpt_controls.pop(key, None)
+                removed_gpt_controls = True
+        if removed_gpt_controls:
+            fallbacks.append(without_gpt_controls)
+
+        legacy_tokens = dict(without_gpt_controls if removed_gpt_controls else kwargs)
+        if "max_completion_tokens" in legacy_tokens:
+            legacy_tokens["max_tokens"] = legacy_tokens.pop("max_completion_tokens")
+            if legacy_tokens not in fallbacks:
+                fallbacks.append(legacy_tokens)
+
+        return fallbacks
+
+    def _is_parameter_compat_error(self, exc: BaseException) -> bool:
+        if isinstance(exc, TypeError):
+            return True
+        status = getattr(exc, "status_code", None) or getattr(exc, "status", None)
+        response = getattr(exc, "response", None)
+        if response is not None:
+            status = status or getattr(response, "status_code", None)
+        if status != 400:
+            return False
+        text = str(exc).lower()
+        return any(
+            marker in text
+            for marker in (
+                "max_completion_tokens",
+                "max_tokens",
+                "reasoning_effort",
+                "verbosity",
+                "unsupported",
+                "unrecognized",
+                "unknown parameter",
+                "unexpected keyword",
+            )
+        )
+
+    async def _create_chat_completion(self, kwargs: dict):
+        try:
+            return await call_with_retry(
+                lambda: self._client.chat.completions.create(**kwargs)
+            )
+        except BaseException as exc:
+            fallbacks = self._fallback_chat_kwargs(kwargs)
+            if not fallbacks or not self._is_parameter_compat_error(exc):
+                raise
+            for index, fallback in enumerate(fallbacks):
+                try:
+                    return await call_with_retry(
+                        lambda: self._client.chat.completions.create(**fallback)
+                    )
+                except BaseException as fallback_exc:
+                    if (
+                        index >= len(fallbacks) - 1
+                        or not self._is_parameter_compat_error(fallback_exc)
+                    ):
+                        raise
+            raise
+
+    async def _parse_chat_completion(
+        self,
+        kwargs: dict,
+        response_format: type[BaseModel],
+    ):
+        try:
+            return await call_with_retry(
+                lambda: self._client.beta.chat.completions.parse(
+                    **kwargs,
+                    response_format=response_format,
+                )
+            )
+        except BaseException as exc:
+            fallbacks = self._fallback_chat_kwargs(kwargs)
+            if not fallbacks or not self._is_parameter_compat_error(exc):
+                raise
+            for index, fallback in enumerate(fallbacks):
+                try:
+                    return await call_with_retry(
+                        lambda: self._client.beta.chat.completions.parse(
+                            **fallback,
+                            response_format=response_format,
+                        )
+                    )
+                except BaseException as fallback_exc:
+                    if (
+                        index >= len(fallbacks) - 1
+                        or not self._is_parameter_compat_error(fallback_exc)
+                    ):
+                        raise
+            raise
 
     def _apply_deepseek_thinking_kwargs(self, kwargs: dict, model: str) -> None:
         settings = self._deepseek_settings
@@ -153,16 +301,9 @@ class OpenAIProvider(LLMProvider):
 
         t0 = time.monotonic()
         if response_format:
-            resp = await call_with_retry(
-                lambda: self._client.beta.chat.completions.parse(
-                    **kwargs,
-                    response_format=response_format,
-                )
-            )
+            resp = await self._parse_chat_completion(kwargs, response_format)
         else:
-            resp = await call_with_retry(
-                lambda: self._client.chat.completions.create(**kwargs)
-            )
+            resp = await self._create_chat_completion(kwargs)
         duration_ms = int((time.monotonic() - t0) * 1000)
 
         content = resp.choices[0].message.content or ""
@@ -203,7 +344,22 @@ class OpenAIProvider(LLMProvider):
             stream=True,
         )
 
-        stream = await self._client.chat.completions.create(**kwargs)
+        try:
+            stream = await self._client.chat.completions.create(**kwargs)
+        except BaseException as exc:
+            fallbacks = self._fallback_chat_kwargs(kwargs)
+            if not fallbacks or not self._is_parameter_compat_error(exc):
+                raise
+            for index, fallback in enumerate(fallbacks):
+                try:
+                    stream = await self._client.chat.completions.create(**fallback)
+                    break
+                except BaseException as fallback_exc:
+                    if (
+                        index >= len(fallbacks) - 1
+                        or not self._is_parameter_compat_error(fallback_exc)
+                    ):
+                        raise
         async for chunk in stream:
             delta = chunk.choices[0].delta
             if delta.content:

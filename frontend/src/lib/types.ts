@@ -50,6 +50,11 @@ export interface DeepSeekSettings {
   reasoning_effort: "high" | "max";
 }
 
+export interface OpenAISettings {
+  reasoning_effort: "none" | "low" | "medium" | "high" | "xhigh";
+  verbosity: "low" | "medium" | "high";
+}
+
 export interface GenerateRequestPayload {
   session_id: string;
   instruction: string;
@@ -59,6 +64,7 @@ export interface GenerateRequestPayload {
     api_key: string;
     base_url?: string;
     deepseek_settings?: DeepSeekSettings;
+    openai_settings?: OpenAISettings;
   };
   options: GenerationOptions;
 }
@@ -163,6 +169,7 @@ export interface RefineRequestPayload {
     api_key: string;
     base_url?: string;
     deepseek_settings?: DeepSeekSettings;
+    openai_settings?: OpenAISettings;
   };
   options: GenerationOptions;
   target_pages?: number[];

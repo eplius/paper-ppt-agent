@@ -29,21 +29,14 @@ async def _iterate_refine_pipeline(job_id: str, request: Any) -> None:
 
 
 def _cleanup_refine_workspace(job_id: str) -> None:
-    """Delete a refine workspace clone if it produced no deliverable.
+    """Preserve a failed/cancelled refine workspace for inspection.
 
-    Refine jobs run in an isolated copy of the parent project (created by
-    ``clone_project_for_refine``) so cleaning it up never affects the
-    original successful generation.
+    Refine jobs run in isolated clones. Keeping the clone makes partial SVGs,
+    archives, and diagnostics available from the result page after failures.
     """
-    from backend.generator.project_manager import cleanup_project_dir, has_deliverable
-
     job = session_manager.get_job(job_id)
-    if job is None or not job.project_dir:
-        return
-    if has_deliverable(job.project_dir):
-        return
-    cleanup_project_dir(job.project_dir)
-    session_manager.update_job(job_id, project_dir=None)
+    if job is not None and job.project_dir:
+        session_manager.update_job(job_id, project_dir=job.project_dir)
 
 
 async def _run_refine_job(job_id: str, request: Any) -> None:
@@ -189,6 +182,12 @@ async def refine_presentation(request: RefineRequest) -> RefineResponse:
             request.model_settings.deepseek_settings.model_dump()
             if request.model_settings.provider == "deepseek"
             and request.model_settings.deepseek_settings
+            else None
+        ),
+        openai_settings=(
+            request.model_settings.openai_settings.model_dump()
+            if request.model_settings.provider == "openai"
+            and request.model_settings.openai_settings
             else None
         ),
         enable_visual_critic=options.enable_visual_critic,

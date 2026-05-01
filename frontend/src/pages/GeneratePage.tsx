@@ -13,7 +13,7 @@ import { FilePreview } from "../components/upload/FilePreview";
 import { UploadZone } from "../components/upload/UploadZone";
 import { useGeneration } from "../hooks/useGeneration";
 import { useLocale } from "../i18n";
-import type { DeepSeekSettings } from "../lib/types";
+import type { DeepSeekSettings, OpenAISettings } from "../lib/types";
 
 const ROUTING_PROFILE_STORAGE_KEY = "paper-ppt-agent-routing-profiles-v1";
 type LanguageMode = "zh" | "en" | "custom";
@@ -22,12 +22,17 @@ const DEFAULT_DEEPSEEK_SETTINGS: DeepSeekSettings = {
   thinking_enabled: true,
   reasoning_effort: "max",
 };
+const DEFAULT_OPENAI_SETTINGS: OpenAISettings = {
+  reasoning_effort: "medium",
+  verbosity: "high",
+};
 
 interface RoutingProfile {
   model: string;
   baseUrl: string;
   apiKey: string;
   deepseekSettings?: DeepSeekSettings;
+  openaiSettings?: OpenAISettings;
 }
 
 type RoutingProfileMap = Record<string, RoutingProfile>;
@@ -91,6 +96,9 @@ export function GeneratePage() {
   const [deepSeekSettings, setDeepSeekSettings] = useState<DeepSeekSettings>(
     DEFAULT_DEEPSEEK_SETTINGS,
   );
+  const [openAISettings, setOpenAISettings] = useState<OpenAISettings>(
+    DEFAULT_OPENAI_SETTINGS,
+  );
   const [style, setStyle] = useState("academic");
   const [styleOverrides, setStyleOverrides] = useState<StyleOverrides>({});
   const [canvasFormat, setCanvasFormat] = useState("ppt169");
@@ -151,6 +159,7 @@ export function GeneratePage() {
       setBaseUrl(saved?.baseUrl || defaults.baseUrl);
       setApiKey(saved?.apiKey || "");
       setDeepSeekSettings(saved?.deepseekSettings ?? DEFAULT_DEEPSEEK_SETTINGS);
+      setOpenAISettings(saved?.openaiSettings ?? DEFAULT_OPENAI_SETTINGS);
     }
   }, [provider, providers]);
 
@@ -168,6 +177,7 @@ export function GeneratePage() {
     setBaseUrl(saved?.baseUrl || defaults.baseUrl);
     setApiKey(saved?.apiKey || "");
     setDeepSeekSettings(saved?.deepseekSettings ?? DEFAULT_DEEPSEEK_SETTINGS);
+    setOpenAISettings(saved?.openaiSettings ?? DEFAULT_OPENAI_SETTINGS);
   }, [provider, providers, selectedRunConfig?.provider, targetJobId]);
 
   useEffect(() => {
@@ -184,9 +194,10 @@ export function GeneratePage() {
       baseUrl,
       apiKey,
       deepseekSettings: provider === "deepseek" ? deepSeekSettings : existing?.deepseekSettings,
+      openaiSettings: provider === "openai" ? openAISettings : existing?.openaiSettings,
     };
     writeRoutingProfiles(profiles);
-  }, [apiKey, baseUrl, deepSeekSettings, model, provider, targetJobId]);
+  }, [apiKey, baseUrl, deepSeekSettings, model, openAISettings, provider, targetJobId]);
 
   useEffect(() => {
     if (!targetJobId || !selectedRunConfig) {
@@ -200,6 +211,7 @@ export function GeneratePage() {
     setBaseUrl(selectedRunConfig.baseUrl ?? "");
     setApiKey(savedProfile?.apiKey ?? "");
     setDeepSeekSettings(savedProfile?.deepseekSettings ?? DEFAULT_DEEPSEEK_SETTINGS);
+    setOpenAISettings(savedProfile?.openaiSettings ?? DEFAULT_OPENAI_SETTINGS);
     setCanvasFormat(options.canvas_format || "ppt169");
     setStyle(options.style || "academic");
     setStyleOverrides(options.style_overrides ?? {});
@@ -248,6 +260,7 @@ export function GeneratePage() {
             baseUrl={baseUrl}
             apiKey={apiKey}
             deepSeekSettings={deepSeekSettings}
+            openAISettings={openAISettings}
             onProviderChange={(nextProvider) => {
               setProvider(nextProvider);
             }}
@@ -255,6 +268,7 @@ export function GeneratePage() {
             onBaseUrlChange={setBaseUrl}
             onApiKeyChange={setApiKey}
             onDeepSeekSettingsChange={setDeepSeekSettings}
+            onOpenAISettingsChange={setOpenAISettings}
           />
           <OptionsPanel
             canvasFormat={canvasFormat}
@@ -313,6 +327,7 @@ export function GeneratePage() {
                 baseUrl,
                 apiKey,
                 deepseekSettings: provider === "deepseek" ? deepSeekSettings : undefined,
+                openaiSettings: provider === "openai" ? openAISettings : undefined,
               };
               writeRoutingProfiles(profiles);
               const jobId = await startGeneration({
@@ -324,6 +339,7 @@ export function GeneratePage() {
                   api_key: apiKey,
                   base_url: baseUrl || undefined,
                   deepseek_settings: provider === "deepseek" ? deepSeekSettings : undefined,
+                  openai_settings: provider === "openai" ? openAISettings : undefined,
                 },
                 options: {
                   canvas_format: canvasFormat,

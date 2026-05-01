@@ -49,6 +49,7 @@ class GenerationRequest:
     timeout_seconds: int | None = None
     style_overrides: dict | None = None  # {palette: [...], font: "...", density: "..."}
     deepseek_settings: dict | None = None
+    openai_settings: dict | None = None
     enable_visual_critic: bool = False
 
 
@@ -67,11 +68,15 @@ async def run_pipeline(
     from backend.parser.latex_parser import LaTeXParser
     from backend.parser.pdf_parser import PDFParser
 
+    provider_kwargs = {"base_url": request.base_url}
+    if request.deepseek_settings is not None:
+        provider_kwargs["deepseek_settings"] = request.deepseek_settings
+    if request.openai_settings is not None:
+        provider_kwargs["openai_settings"] = request.openai_settings
     llm = create_provider(
         request.provider,
         request.api_key,
-        base_url=request.base_url,
-        deepseek_settings=request.deepseek_settings,
+        **provider_kwargs,
     )
 
     # Create project workspace
@@ -360,6 +365,7 @@ class RefineRequest:
     allow_structure_changes: bool = False
     style_overrides: dict | None = None
     deepseek_settings: dict | None = None
+    openai_settings: dict | None = None
     enable_visual_critic: bool = False
 
 
@@ -402,11 +408,15 @@ async def run_refine_pipeline(
     manuscript = manuscript_path.read_text(encoding="utf-8")
     design_spec = design_spec_path.read_text(encoding="utf-8")
 
+    provider_kwargs = {"base_url": request.base_url}
+    if request.deepseek_settings is not None:
+        provider_kwargs["deepseek_settings"] = request.deepseek_settings
+    if request.openai_settings is not None:
+        provider_kwargs["openai_settings"] = request.openai_settings
     llm = create_provider(
         request.provider,
         request.api_key,
-        base_url=request.base_url,
-        deepseek_settings=request.deepseek_settings,
+        **provider_kwargs,
     )
     target_pages = sorted({page for page in (request.target_pages or []) if page > 0})
 

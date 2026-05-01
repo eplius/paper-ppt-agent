@@ -1420,6 +1420,10 @@ html[lang="zh-CN"] .panel-title {
   min-height: auto;
 }
 
+.deepseek-toggle-row .visual-qa-control {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
 .form-field input:focus,
 .form-field select:focus,
 .form-field textarea:focus {

@@ -29,21 +29,16 @@ async def _iterate_pipeline(job_id: str, request: Any) -> None:
 
 
 def _cleanup_partial_workspace(job_id: str) -> None:
-    """Remove the workspace of a cancelled/failed job that produced nothing.
+    """Preserve the workspace of a cancelled/failed job.
 
-    Keep workspaces that already contain a usable .pptx so the user can
-    still download partial work; scrub everything else to avoid disk bloat
-    after repeated cancellations.
+    Failed runs often still contain useful parse output, manuscript drafts,
+    or partially generated SVGs. Keeping the project directory lets the result
+    page preview whatever exists and allows a later re-export when SVGs were
+    already produced.
     """
-    from backend.generator.project_manager import cleanup_project_dir, has_deliverable
-
     job = session_manager.get_job(job_id)
-    if job is None or not job.project_dir:
-        return
-    if has_deliverable(job.project_dir):
-        return
-    cleanup_project_dir(job.project_dir)
-    session_manager.update_job(job_id, project_dir=None)
+    if job is not None and job.project_dir:
+        session_manager.update_job(job_id, project_dir=job.project_dir)
 
 
 async def _run_generation_job(job_id: str, request: Any) -> None:
@@ -135,6 +130,12 @@ async def generate_presentation(request: GenerateRequest) -> GenerateResponse:
             request.model_settings.deepseek_settings.model_dump()
             if request.model_settings.provider == "deepseek"
             and request.model_settings.deepseek_settings
+            else None
+        ),
+        openai_settings=(
+            request.model_settings.openai_settings.model_dump()
+            if request.model_settings.provider == "openai"
+            and request.model_settings.openai_settings
             else None
         ),
         enable_visual_critic=request.options.enable_visual_critic,

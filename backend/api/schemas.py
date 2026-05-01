@@ -23,12 +23,18 @@ class DeepSeekSettings(BaseModel):
     reasoning_effort: Literal["high", "max"] = "max"
 
 
+class OpenAISettings(BaseModel):
+    reasoning_effort: Literal["none", "low", "medium", "high", "xhigh"] = "medium"
+    verbosity: Literal["low", "medium", "high"] = "high"
+
+
 class ModelConfig(BaseModel):
     provider: str  # "openai", "deepseek", "anthropic", "gemini"
     model: str
     api_key: str
     base_url: str | None = None
     deepseek_settings: DeepSeekSettings | None = None
+    openai_settings: OpenAISettings | None = None
 
 
 class StyleOverrides(BaseModel):

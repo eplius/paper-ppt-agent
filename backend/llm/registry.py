@@ -127,6 +127,7 @@ def create_provider(
     *,
     base_url: str | None = None,
     deepseek_settings: dict | None = None,
+    openai_settings: dict | None = None,
 ) -> LLMProvider:
     """Create an LLM provider instance by name."""
     if name not in _PROVIDER_IMPORTS:
@@ -144,6 +145,8 @@ def create_provider(
         }
         if deepseek_settings is not None:
             kwargs["deepseek_settings"] = deepseek_settings
+        if openai_settings is not None:
+            kwargs["openai_settings"] = openai_settings
         return cls(**kwargs)
     return cls(api_key=api_key)
 
