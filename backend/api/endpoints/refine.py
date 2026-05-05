@@ -178,6 +178,7 @@ async def refine_presentation(request: RefineRequest) -> RefineResponse:
             if options.style_overrides
             else None
         ),
+        icon_library=options.icon_library,
         deepseek_settings=(
             request.model_settings.deepseek_settings.model_dump()
             if request.model_settings.provider == "deepseek"

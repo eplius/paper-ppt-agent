@@ -123,14 +123,13 @@ Built-in library contains 6700+ icons across three libraries:
 >    - **Sharp, rectilinear geometry** (default): use `chunk` — all paths use straight-line commands only (M/L/H/V/Z)
 >    - **Smooth, rounded forms**: use `tabler-filled` — all contours built with bezier curves and arcs (C/A)
 >    - **Outline/Stroke style** (screen-only, light aesthetic): use `tabler-outline`
->    - **Outline/Stroke style** (screen-only, light aesthetic): use `tabler-outline`
 >    - ⚠️ **One presentation = one library.** Mixing icons from different libraries is FORBIDDEN. If a chosen library lacks an exact icon, find the closest alternative **within that same library**.
-> 2. Search for icon availability: `ls skills/ppt-master/templates/icons/<chosen-library>/ | grep <keyword>`
-> 3. Use the verified filename (without `.svg`) as the icon name
+> 2. **Use the pre-selected icon candidates** provided in the prompt — these were retrieved by semantic search from the full 6700+ icon index based on your manuscript content. **You MUST choose icons from this candidate list.**
+> 3. Use the icon path exactly as shown (e.g., `chunk/chart-bar` or `tabler-outline/arrow-right`)
 > 4. Always include the library prefix (e.g., `chunk/home` or `tabler-filled/home`)
 > 5. List the final icon inventory and chosen library in the Design Spec; Executor may only use icons from this list
 >
-> **Do NOT preload any index file** — use `ls | grep` to search on demand with zero token cost.
+> **Do NOT use `ls | grep`** — the RAG system has already retrieved the most relevant icons for you.
 
 ### g. Typography Plan Confirmation (Font + Size)
 
