@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from pathlib import Path
 
 from backend.config import CANVAS_FORMATS, DESIGN_STYLES, settings
+from backend.generator.icon_index import get_icon_index
 from backend.llm import LLMMessage, LLMProvider, LLMResponse
 from backend.orchestrator.manuscript import count_manuscript_pages
 from backend.orchestrator.provider_guidance import (
@@ -13,9 +15,102 @@ from backend.orchestrator.provider_guidance import (
     is_deepseek_provider,
 )
 
+logger = logging.getLogger(__name__)
+
 PROMPT_PATH = Path(__file__).parent / "prompts" / "strategist.md"
 DESIGN_SPEC_MAX_TOKENS = 24576
 MAX_DESIGN_SPEC_ATTEMPTS = 2
+
+# Number of icon candidates to pre-select via RAG
+ICON_CANDIDATE_COUNT = 60
+# Number of search queries to extract from manuscript
+ICON_QUERY_COUNT = 12
+
+
+def _extract_icon_queries(manuscript: str) -> list[str]:
+    """Extract semantic queries for icon search from manuscript content.
+
+    Parses page titles and key concepts from the slide-structured manuscript
+    to generate targeted icon search queries.
+    """
+    queries: list[str] = []
+
+    # Extract page titles (## headings)
+    for m in re.finditer(r"^##\s+(.+)$", manuscript, re.MULTILINE):
+        title = m.group(1).strip()
+        # Clean up numbering like "1. " or "Page 1: "
+        title = re.sub(r"^\d+[\.\):\s]+", "", title).strip()
+        if title and len(title) > 2:
+            queries.append(title)
+
+    # Extract bold concepts (**text**)
+    for m in re.finditer(r"\*\*([^*]{3,50})\*\*", manuscript):
+        concept = m.group(1).strip()
+        if concept not in queries:
+            queries.append(concept)
+
+    return queries[:ICON_QUERY_COUNT]
+
+
+def _retrieve_icon_candidates(
+    manuscript: str,
+    lib: str,
+) -> str:
+    """Retrieve icon candidates for the chosen library using RAG.
+
+    Returns a formatted string listing candidate icons for injection
+    into the strategist prompt.
+    """
+    index = get_icon_index()
+    if not index.is_available:
+        logger.warning("Icon index not available, skipping RAG retrieval")
+        return ""
+
+    queries = _extract_icon_queries(manuscript)
+    if not queries:
+        return ""
+
+    # Collect candidates from all queries
+    seen_paths: set[str] = set()
+    candidates: list[dict] = []
+
+    for query in queries:
+        results = index.search(query, lib=lib, k=5)
+        for r in results:
+            if r["path"] not in seen_paths:
+                seen_paths.add(r["path"])
+                candidates.append(r)
+
+    # Sort by score descending, take top N
+    candidates.sort(key=lambda x: x["score"], reverse=True)
+    candidates = candidates[:ICON_CANDIDATE_COUNT]
+
+    if not candidates:
+        return ""
+
+    # Format as a compact table for prompt injection
+    lines = [
+        f"\n## Pre-selected Icon Candidates ({lib} library, {len(candidates)} icons)",
+        "",
+        "These icons were retrieved by semantic search from the full icon index "
+        "based on your manuscript content. **You MUST choose icons from this list.**",
+        "",
+        "| # | Icon Path | Category | Tags |",
+        "|---|-----------|----------|------|",
+    ]
+
+    for i, c in enumerate(candidates, 1):
+        tags = ", ".join(c.get("tags", [])[:5])
+        cat = c.get("category", "-")
+        lines.append(f"| {i} | `{c['path']}` | {cat} | {tags} |")
+
+    lines.append("")
+    lines.append(
+        "Use the icon path with the `<use data-icon=\"...\"/>` placeholder syntax. "
+        "Example: `<use data-icon=\"chart-bar\" x=\"100\" y=\"200\" width=\"32\" height=\"32\" fill=\"#0076A8\"/>`"
+    )
+
+    return "\n".join(lines)
 
 
 def _design_spec_validation_error(content: str) -> str | None:
@@ -62,6 +157,7 @@ async def create_design_spec(
     style: str = "academic",
     language: str = "en",
     detail_level: str = "normal",
+    icon_library: str = "chunk",
     style_overrides: dict | None = None,
 ) -> str:
     """Generate a design specification from a manuscript.
@@ -74,6 +170,7 @@ async def create_design_spec(
         style: Design style key.
         language: Output language.
         detail_level: Requested content depth and density target.
+        icon_library: Icon library to use (chunk/tabler-filled/tabler-outline).
 
     Returns:
         Design specification markdown (design_spec.md content).
@@ -117,6 +214,11 @@ async def create_design_spec(
 
     if is_deepseek_provider(llm, model):
         user_parts.append("\n" + deepseek_strategy_guidance(detail_level))
+
+    # RAG icon retrieval: pre-select candidates from the full icon index
+    icon_candidates_block = _retrieve_icon_candidates(manuscript, icon_library)
+    if icon_candidates_block:
+        user_parts.append(icon_candidates_block)
 
     if style_overrides:
         override_lines = ["\n## Style Overrides (must override defaults)"]

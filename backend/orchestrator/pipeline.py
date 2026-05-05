@@ -48,6 +48,7 @@ class GenerationRequest:
     detail_level: str = "normal"
     timeout_seconds: int | None = None
     style_overrides: dict | None = None  # {palette: [...], font: "...", density: "..."}
+    icon_library: str = "chunk"  # chunk / tabler-filled / tabler-outline
     deepseek_settings: dict | None = None
     openai_settings: dict | None = None
     enable_visual_critic: bool = False
@@ -155,6 +156,7 @@ async def run_pipeline(
             style=request.style,
             language=request.language,
             detail_level=request.detail_level,
+            icon_library=request.icon_library,
             style_overrides=request.style_overrides,
         )
 
@@ -364,6 +366,7 @@ class RefineRequest:
     target_pages: list[int] | None = None
     allow_structure_changes: bool = False
     style_overrides: dict | None = None
+    icon_library: str = "chunk"
     deepseek_settings: dict | None = None
     openai_settings: dict | None = None
     enable_visual_critic: bool = False
@@ -458,6 +461,7 @@ async def run_refine_pipeline(
             style=request.style,
             language=request.language,
             detail_level=request.detail_level,
+            icon_library=request.icon_library,
             style_overrides=request.style_overrides,
         )
         design_spec_path.write_text(design_spec, encoding="utf-8")
