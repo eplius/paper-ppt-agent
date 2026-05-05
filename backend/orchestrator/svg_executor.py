@@ -13,6 +13,8 @@ import re
 from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
 
+from PIL import Image
+
 from backend.config import settings
 from backend.generator.svg_critic import CriticConfig, CriticReport, Violation, check_svg
 from backend.generator.visual_critic import VisualCriticConfig, visual_check
@@ -112,8 +114,21 @@ def _figure_guidance_block(used: list[dict], rejected: list[str] | None = None) 
         cap = (fig.get("caption") or "").strip().replace("\n", " ")
         if len(cap) > 160:
             cap = cap[:157] + "..."
+
+        # 读取实际图片尺寸，帮助executor设置正确的width/height
+        dim_info = ""
+        try:
+            img_path = Path(path)
+            if img_path.exists():
+                with Image.open(img_path) as img:
+                    w, h = img.size
+                    ratio = w / h
+                    dim_info = f" actual dimensions: {w}x{h} (ratio {ratio:.2f});"
+        except Exception:
+            pass
+
         lines.append(
-            f"- Allowed paper figure href: \"{path}\"; caption: {cap}"
+            f"- Allowed paper figure href: \"{path}\";{dim_info} caption: {cap}"
         )
     lines.append(
         "Use only the listed hrefs for extracted paper figures. Never substitute "
