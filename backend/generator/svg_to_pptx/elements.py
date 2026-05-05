@@ -326,6 +326,10 @@ def convert_image(elem: Any, ctx: ConvertContext) -> str:
         if not img_path.exists():
             img_path = (ctx.svg_dir.parent / href).resolve()
         if not img_path.exists():
+            import logging
+            logging.getLogger(__name__).warning(
+                "Image href %r not found, skipping element", href
+            )
             return ""
         img_data = img_path.read_bytes()
         ext = img_path.suffix.lstrip(".").lower()
@@ -457,7 +461,7 @@ def _build_text_shape(x: float, y: float, runs: list[dict], ctx: ConvertContext,
     max_font_size = max((run["font_size"] for run in runs), default=16)
     text_w = estimate_text_width(total_text, max_font_size, any(run["bold"] for run in runs))
     text_h = max_font_size * 1.35
-    padded_w = max(text_w * 1.45 + max_font_size, 24)
+    padded_w = max(text_w * 1.6 + max_font_size, 24)
 
     algn_map = {"start": "l", "middle": "ctr", "end": "r"}
     algn = algn_map.get(anchor, "l")

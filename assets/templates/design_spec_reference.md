@@ -155,13 +155,21 @@
 ### Source
 
 - **Built-in icon library**: `templates/icons/` (6700+ icons across three libraries)
-- **Usage method**: Placeholder format `{{icon:category/icon-name}}`
+- **Usage method**: SVG placeholder format `<use data-icon="category/icon-name" x="" y="" width="" height="" fill="#HEX"/>`
+- **Recommended Library**: `tabler-outline` 为主；必要时对结果页使用少量 `tabler-filled` 强调正向结果。
+- **Icon Style Guidelines**:
+  - 线宽统一，保持 academic clean look。
+  - 图标尺寸：正文卡片 22–28px；章节标识 30–36px；封面装饰不超过 48px。
+  - 图标颜色默认 `#2B6CB0`，风险/局限用 `#C05621`，提升/贡献用 `#2F855A`。
+  - 图标只用于语义引导，不作为装饰堆叠；每页建议不超过 5 个。
+  - 不使用复杂 emoji；若使用符号，仅限箭头、加号、对勾等清晰符号。
+  - **One presentation = one library — never mix libraries.**
 
 ### Recommended Icon List (fill as needed)
 
 | Purpose | Icon Path | Page |
 | ------- | --------- | ---- |
-| [example] | `{{icon:interface/check-circle}}` | Slide XX |
+| [example] | `tabler-outline/check-circle` | Slide XX |
 
 ---
 
