@@ -47,8 +47,8 @@ One complete SVG file per page with proper viewBox.
 3. Use proper text sizing: titles large, body readable, captions small
 4. Include decorative elements sparingly (dividers, subtle backgrounds)
 5. Data visualizations: use SVG shapes directly (rect bars, circle pies, path lines)
-6. Images: reference with `<image href="path" x="" y="" width="" height=""/>`
-7. Maintain consistent margins and spacing across all pages
+6. Images: reference with `<image href="path" x="" y="" width="" height=""/>`. The `href` MUST point to a real file path that exists (e.g. `../sources/images/fig_001_p1.png`). Do NOT invent filenames. If no real image is available, use native SVG shapes/charts/icons instead.
+7. Maintain consistent margins and spacing across all pages. Keep all text at least 40px away from the canvas edges (0 and 1280 horizontally, 0 and 720 vertically) to avoid clipping in the exported PPTX.
 8. For a single visual line of copy, use exactly one `<text>` element. Do not place multiple sibling `<text>` elements at the same or nearly the same x/y position to fake inline styling.
 9. Use inline `<tspan>` only for style emphasis within one line. Do not simulate subscripts, footnotes, or formulas by adding a second `<text>` node that starts at the same x position.
 10. Never use HTML `<span>` inside SVG. Inline emphasis must be SVG `<tspan>`, otherwise browser preview can leak the span text outside the slide.

@@ -226,9 +226,9 @@ def estimate_text_width(text: str, font_size: float, bold: bool = False) -> floa
         if is_cjk_char(ch):
             width += font_size
         elif ch == " ":
-            width += font_size * 0.3
+            width += font_size * 0.35
         else:
-            width += font_size * 0.55
+            width += font_size * 0.62
     if bold:
         width *= 1.05
     return width
