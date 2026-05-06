@@ -424,7 +424,7 @@ export function GeneratePage() {
               onOverridesChange={setStyleOverrides}
             />
           ) : null}
-          {secondaryPanel === "log" ? <AgentLog logs={logs} criticEvents={criticEvents} /> : null}
+          {secondaryPanel === "log" ? <AgentLog logs={logs} criticEvents={criticEvents} jobId={jobId} /> : null}
         </div>
       </aside>
     </Layout>

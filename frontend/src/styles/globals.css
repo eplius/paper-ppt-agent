@@ -1814,6 +1814,25 @@ html[lang="zh-CN"] .panel-title {
   overflow: auto;
 }
 
+.critic-archive-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.3rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 5px;
+  background: rgba(255, 139, 71, 0.1);
+  color: #ff8b47;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background 0.15s;
+}
+
+.critic-archive-link:hover {
+  background: rgba(255, 139, 71, 0.18);
+}
+
 /* ── Logs page filters ──────────────────────────────────────────────────── */
 
 .logs-table-header {

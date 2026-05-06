@@ -1,15 +1,23 @@
 import { useState } from "react";
-import { AlertTriangle, ChevronDown, ChevronRight, Terminal } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronRight, Eye, Terminal } from "lucide-react";
 import { useLocale } from "../../i18n";
 import { translateLogLine } from "../../lib/i18nStatus";
 import type { CriticEvent } from "../../lib/types";
 
+function buildArchiveUrl(archivePath: string, jobId?: string): string | null {
+  if (!jobId || !archivePath) return null;
+  const filename = archivePath.split("/").pop();
+  if (!filename) return null;
+  return `/api/critic-archive/${jobId}/${filename}`;
+}
+
 interface AgentLogProps {
   logs?: string[];
   criticEvents?: CriticEvent[];
+  jobId?: string;
 }
 
-export function AgentLog({ logs, criticEvents }: AgentLogProps) {
+export function AgentLog({ logs, criticEvents, jobId }: AgentLogProps) {
   const { t, locale } = useLocale();
   const safeLogs = Array.isArray(logs) ? logs : [];
   const safeCritic = Array.isArray(criticEvents) ? criticEvents : [];
@@ -142,6 +150,17 @@ export function AgentLog({ logs, criticEvents }: AgentLogProps) {
                                   <pre className="critic-repair-text">{ev.repair_prompt}</pre>
                                 ) : null}
                               </div>
+                            ) : null}
+                            {ev.archive_path && jobId ? (
+                              <a
+                                className="critic-archive-link"
+                                href={buildArchiveUrl(ev.archive_path, jobId) ?? "#"}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                <Eye size={11} />
+                                View pre-repair SVG
+                              </a>
                             ) : null}
                           </div>
                         ))}

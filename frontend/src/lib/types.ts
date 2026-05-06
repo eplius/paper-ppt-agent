@@ -173,6 +173,7 @@ export interface CriticEvent {
   attempt: number;
   report: CriticReport;
   repair_prompt?: string;
+  archive_path?: string;
 }
 
 /** Heartbeat ping emitted by the server every ~20s of silence. */

@@ -510,7 +510,7 @@ export function ResultPage() {
         <section className="result-refine-monitor">
           <div className="column-stack">
             <ProgressPanel job={liveJob} connectionStatus={connectionStatus} />
-            <AgentLog logs={logs} criticEvents={criticEvents} />
+            <AgentLog logs={logs} criticEvents={criticEvents} jobId={jobId ?? undefined} />
           </div>
         </section>
       ) : null}
