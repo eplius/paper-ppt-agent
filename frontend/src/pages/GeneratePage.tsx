@@ -181,18 +181,18 @@ export function GeneratePage() {
     if (!provider) {
       return;
     }
-    if (targetJobId && selectedRunConfig?.provider === provider) {
+    if (targetJobId) {
       return;
     }
     const profiles = readRoutingProfiles();
     const saved = profiles[provider];
     const defaults = getProviderDefaults(providers, provider);
-    setModel("");
+    setModel(saved?.model || "");
     setBaseUrl(saved?.baseUrl || defaults.baseUrl);
     setApiKey(saved?.apiKey || "");
     setDeepSeekSettings(saved?.deepseekSettings ?? DEFAULT_DEEPSEEK_SETTINGS);
     setOpenAISettings(saved?.openaiSettings ?? DEFAULT_OPENAI_SETTINGS);
-  }, [provider, providers, selectedRunConfig?.provider, targetJobId]);
+  }, [provider, providers]);
 
   useEffect(() => {
     if (!provider) {
