@@ -22,9 +22,9 @@ DESIGN_SPEC_MAX_TOKENS = 24576
 MAX_DESIGN_SPEC_ATTEMPTS = 2
 
 # Number of icon candidates to pre-select via RAG
-ICON_CANDIDATE_COUNT = 60
+ICON_CANDIDATE_COUNT = 30
 # Number of search queries to extract from manuscript
-ICON_QUERY_COUNT = 12
+ICON_QUERY_COUNT = 8
 
 
 def _extract_icon_queries(manuscript: str) -> list[str]:
@@ -105,10 +105,12 @@ def _retrieve_icon_candidates(
 
     # Format as a compact table for prompt injection
     lines = [
-        f"\n## Pre-selected Icon Candidates ({lib} library, {len(candidates)} icons)",
+        f"\n## Available Icon Candidates ({lib} library, {len(candidates)} icons)",
         "",
-        "These icons were retrieved by semantic search from the full icon index "
-        "based on your manuscript content. **You MUST choose icons from this list.**",
+        "These icons were retrieved by semantic search based on your manuscript content. "
+        "They are **optional resources** — only use an icon when it has a clear semantic role "
+        "(e.g., marking a section header, labeling a process step, highlighting a KPI). "
+        "Do NOT use icons as bullet-point prefixes or generic decoration.",
         "",
         "| # | Icon Path | Category | Tags |",
         "|---|-----------|----------|------|",
@@ -123,6 +125,12 @@ def _retrieve_icon_candidates(
     lines.append(
         "Use the icon path with the `<use data-icon=\"...\"/>` placeholder syntax. "
         "Example: `<use data-icon=\"chart-bar\" x=\"100\" y=\"200\" width=\"32\" height=\"32\" fill=\"#0076A8\"/>`"
+    )
+    lines.append("")
+    lines.append(
+        "**Important**: These are optional candidates. Most slides should use 0 icons. "
+        "Only add an icon when it has a clear design purpose — do NOT use icons as "
+        "bullet prefixes or decoration."
     )
 
     return "\n".join(lines)
@@ -177,6 +185,8 @@ async def create_design_spec(
     enable_icon: bool = True,
     enable_icon_rag: bool = True,
     gemini_api_key: str | None = None,
+    figure_inventory: list[dict] | None = None,
+    debug_dir: Path | None = None,
 ) -> str:
     """Generate a design specification from a manuscript.
 
@@ -246,6 +256,33 @@ async def create_design_spec(
     if icon_candidates_block:
         user_parts.append(icon_candidates_block)
 
+    # Inject actual image dimensions so the design spec has correct ratios
+    if figure_inventory:
+        fig_lines = ["\n## Available Paper Figures (actual dimensions)"]
+        fig_lines.append("")
+        fig_lines.append("Use these EXACT dimensions and ratios in Section VIII Image Resource List.")
+        fig_lines.append("Do NOT fabricate dimensions — use the actual values below.")
+        fig_lines.append("")
+        fig_lines.append("| Filename | Actual Dimensions | Ratio | Page | Caption |")
+        fig_lines.append("|----------|-------------------|-------|------|---------|")
+        for fig in figure_inventory:
+            w = fig.get("natural_width", 0)
+            h = fig.get("natural_height", 0)
+            ratio = fig.get("aspect_ratio", 0)
+            page = fig.get("page_number", "?")
+            path = fig.get("path", "")
+            name = Path(path).stem if path else "?"
+            cap = (fig.get("caption") or "")[:60]
+            if w and h:
+                fig_lines.append(f"| {name} | {w}x{h} | {ratio:.2f} | p{page} | {cap} |")
+        fig_lines.append("")
+        fig_lines.append(
+            "**Important**: When placing these images in SVG, the `width/height` ratio MUST match "
+            "the actual ratio above. For example, if actual dimensions are 974x269 (ratio 3.62), "
+            "use width=500 height=138 (500/3.62≈138)."
+        )
+        user_parts.append("\n".join(fig_lines))
+
     if style_overrides:
         override_lines = ["\n## Style Overrides (must override defaults)"]
         palette = style_overrides.get("palette") if isinstance(style_overrides, dict) else None
@@ -286,6 +323,18 @@ async def create_design_spec(
         LLMMessage.system(system_prompt),
         LLMMessage.user("\n".join(user_parts)),
     ]
+
+    # Save full prompt for debugging
+    if debug_dir:
+        try:
+            debug_dir.mkdir(parents=True, exist_ok=True)
+            prompt_file = debug_dir / "strategist_prompt.md"
+            parts = []
+            for msg in base_messages:
+                parts.append(f"--- ROLE: {msg.role} ---\n\n{msg.content}")
+            prompt_file.write_text("\n\n".join(parts), encoding="utf-8")
+        except Exception:
+            pass
 
     last_error = ""
     for attempt in range(1, MAX_DESIGN_SPEC_ATTEMPTS + 1):

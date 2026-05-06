@@ -64,9 +64,11 @@ File naming format: `<number>_<page_name>.svg`
 
 ---
 
-## 4. Icon Usage
+## 4. Icon Usage (Optional)
 
-Four approaches: **A: Emoji** (`<text>🚀</text>`) | **B: AI-generated** (SVG basic shapes) | **C: Built-in library** (`templates/icons/` 6700+ icons, recommended) | **D: Custom** (user-specified)
+> **Design philosophy**: Icons are optional. Most slides should use 0 icons. Only add an icon when it has a clear design purpose: marking a section header, labeling a process step, or highlighting a KPI metric. Do NOT use icons as bullet-point prefixes, list decorations, or generic filler. If no clear purpose, leave the space empty.
+
+Four approaches: **A: Emoji** (`<text>🚀</text>`) | **B: AI-generated** (SVG basic shapes) | **C: Built-in library** (`templates/icons/` 6700+ icons, recommended) | **D: Custom** (user-specified) | **E: No icons** (clean minimal style)
 
 **Built-in icons — Placeholder method (recommended)**:
 

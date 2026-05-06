@@ -321,6 +321,18 @@ async def generate_svg_pages(
         ),
     ]
 
+    # Save full initial prompt for debugging
+    try:
+        debug_dir = project_dir / "debug"
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        prompt_file = debug_dir / "executor_prompt.md"
+        parts = []
+        for msg in conversation:
+            parts.append(f"--- ROLE: {msg.role} ---\n\n{msg.content}")
+        prompt_file.write_text("\n\n".join(parts), encoding="utf-8")
+    except Exception:
+        pass
+
     # Track how many page exchanges we've appended beyond the preamble
     # (system + design-spec user + ack assistant = 3 preamble messages).
     _preamble_len = len(conversation)

@@ -40,6 +40,17 @@ One complete SVG file per page with proper viewBox.
 <use data-icon="tabler-outline/arrow-right" x="100" y="200" width="24" height="24" fill="#333"/>
 ```
 
+### Icon Usage Rules
+- Icons are **optional**. Most slides should use 0 icons.
+- Only add an icon when it has a clear design purpose:
+  - Section header marker (next to a chapter/part title)
+  - Process step label (in a flowchart or framework diagram)
+  - KPI metric highlight (next to a key number)
+- Do NOT use icons as bullet-point prefixes, list decorations, or generic filler.
+- If an icon doesn't serve a clear purpose, leave it out — empty space is fine.
+- **Title slide**: at most 1 decorative icon (e.g. topic-related emblem)
+- **Content / data slides**: 0–2 icons maximum, only where justified
+
 ## Generation Rules
 
 1. Generate pages **sequentially**, one at a time
