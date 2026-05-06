@@ -29,14 +29,13 @@ def is_deepseek_provider(llm: LLMProvider, model: str) -> bool:
 def deepseek_research_guidance(detail_level: str) -> str:
     if detail_level != "very_high":
         return (
-            "## DeepSeek Calibration\n\n"
+            "## Detail Level Guidelines\n\n"
             "Preserve concrete paper details in the final answer. Avoid collapsing method, "
             "evidence, or result slides into generic labels."
         )
     return (
-        "## DeepSeek Calibration\n\n"
-        "DeepSeek can be overly terse in its final answer after reasoning. For this "
-        "`very_high` deck, keep the final manuscript analytically dense but still "
+        "## Detail Level Guidelines\n\n"
+        "For this `very_high` deck, keep the final manuscript analytically dense but still "
         "slide-ready:\n"
         "- For each substantive slide, include mechanism, evidence/data, and implication "
         "when the paper provides them.\n"
@@ -53,12 +52,12 @@ def deepseek_research_guidance(detail_level: str) -> str:
 def deepseek_strategy_guidance(detail_level: str) -> str:
     if detail_level != "very_high":
         return (
-            "## DeepSeek Calibration\n\n"
+            "## Detail Level Guidelines\n\n"
             "Convert manuscript substance into concrete layout plans. Do not reduce rich "
             "slides to decorative tags or short labels."
         )
     return (
-        "## DeepSeek Calibration\n\n"
+        "## Detail Level Guidelines\n\n"
         "For `very_high`, the design spec must preserve the manuscript's analytical "
         "depth while keeping layouts readable:\n"
         "- In section IX, each non-cover page must list the concrete content blocks to "
@@ -76,12 +75,12 @@ def deepseek_strategy_guidance(detail_level: str) -> str:
 def deepseek_executor_guidance(detail_level: str) -> str:
     if detail_level != "very_high":
         return (
-            "## DeepSeek Execution Calibration\n\n"
+            "## Detail Level Guidelines\n\n"
             "Keep the SVG faithful to the manuscript. Do not collapse content into a "
             "few generic tags when there is room for concise explanatory text."
         )
     return (
-        "## DeepSeek Execution Calibration\n\n"
+        "## Detail Level Guidelines\n\n"
         "For `very_high`, preserve depth without overcrowding:\n"
         "- Each substantive slide should render the manuscript's core mechanism, "
         "evidence/data, and implication when present.\n"
