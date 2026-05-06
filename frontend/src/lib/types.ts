@@ -43,7 +43,9 @@ export interface GenerationOptions {
   timeout_seconds?: number;
   style_overrides?: StyleOverridesPayload;
   enable_visual_critic?: boolean;
+  enable_icon?: boolean;
   enable_icon_rag?: boolean;
+  gemini_api_key?: string;
 }
 
 export interface DeepSeekSettings {

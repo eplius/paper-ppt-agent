@@ -52,7 +52,9 @@ class GenerationRequest:
     deepseek_settings: dict | None = None
     openai_settings: dict | None = None
     enable_visual_critic: bool = False
+    enable_icon: bool = True
     enable_icon_rag: bool = True
+    gemini_api_key: str | None = None
 
 
 async def run_pipeline(
@@ -159,7 +161,9 @@ async def run_pipeline(
             detail_level=request.detail_level,
             icon_library=request.icon_library,
             style_overrides=request.style_overrides,
+            enable_icon=request.enable_icon,
             enable_icon_rag=request.enable_icon_rag,
+            gemini_api_key=request.gemini_api_key,
         )
 
         # Save design spec
@@ -402,7 +406,9 @@ class RefineRequest:
     deepseek_settings: dict | None = None
     openai_settings: dict | None = None
     enable_visual_critic: bool = False
+    enable_icon: bool = True
     enable_icon_rag: bool = True
+    gemini_api_key: str | None = None
 
 
 async def run_refine_pipeline(
@@ -496,7 +502,9 @@ async def run_refine_pipeline(
             detail_level=request.detail_level,
             icon_library=request.icon_library,
             style_overrides=request.style_overrides,
+            enable_icon=request.enable_icon,
             enable_icon_rag=request.enable_icon_rag,
+            gemini_api_key=request.gemini_api_key,
         )
         design_spec_path.write_text(design_spec, encoding="utf-8")
         yield ProgressEvent("strategy", "complete", "Design spec rebuilt", 0.30)

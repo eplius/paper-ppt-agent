@@ -111,7 +111,9 @@ export function GeneratePage() {
   const [timeoutSeconds, setTimeoutSeconds] = useState("");
   const [instruction, setInstruction] = useState("");
   const [enableVisualCritic, setEnableVisualCritic] = useState(false);
+  const [enableIcon, setEnableIcon] = useState(true);
   const [enableIconRag, setEnableIconRag] = useState(true);
+  const [geminiApiKey, setGeminiApiKey] = useState("");
   const [cancelLoading, setCancelLoading] = useState(false);
   const [secondaryPanel, setSecondaryPanel] = useState<SecondaryPanel | null>(null);
   const freshRequested = searchParams.get("fresh") === "1";
@@ -235,7 +237,9 @@ export function GeneratePage() {
     setDetailLevel(options.detail_level || "normal");
     setTimeoutSeconds(options.timeout_seconds ? String(options.timeout_seconds) : "");
     setEnableVisualCritic(Boolean(options.enable_visual_critic));
+    setEnableIcon(options.enable_icon !== false);
     setEnableIconRag(options.enable_icon_rag !== false);
+    setGeminiApiKey(options.gemini_api_key ?? "");
   }, [selectedRunConfig, targetJobId]);
 
   useEffect(() => {
@@ -289,7 +293,9 @@ export function GeneratePage() {
             timeoutSeconds={timeoutSeconds}
             instruction={instruction}
             enableVisualCritic={enableVisualCritic}
+            enableIcon={enableIcon}
             enableIconRag={enableIconRag}
+            geminiApiKey={geminiApiKey}
             onCanvasFormatChange={setCanvasFormat}
             onLanguageModeChange={setLanguageMode}
             onCustomLanguageChange={setCustomLanguage}
@@ -298,7 +304,9 @@ export function GeneratePage() {
             onTimeoutSecondsChange={setTimeoutSeconds}
             onInstructionChange={setInstruction}
             onEnableVisualCriticChange={setEnableVisualCritic}
+            onEnableIconChange={setEnableIcon}
             onEnableIconRagChange={setEnableIconRag}
+            onGeminiApiKeyChange={setGeminiApiKey}
           />
           <div className="studio-secondary-actions">
             <button
@@ -366,7 +374,9 @@ export function GeneratePage() {
                       ? styleOverrides
                       : undefined,
                   enable_visual_critic: enableVisualCritic,
+                  enable_icon: enableIcon,
                   enable_icon_rag: enableIconRag,
+                  gemini_api_key: geminiApiKey || undefined,
                 },
               });
               connect(jobId);

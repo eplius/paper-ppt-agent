@@ -109,9 +109,12 @@ const translations: Record<Locale, Dictionary> = {
     "options.visualCritic": "Visual QA (Experimental)",
     "options.visualCriticTooltip":
       "Render each slide as an image and have a multimodal LLM inspect it for layout, contrast, and decorative-line issues. Adds one extra LLM call per slide. Requires a vision-capable model. Text-only models will silently skip this step.",
-    "options.iconRag": "Icon RAG Search",
+    "options.enableIcon": "Use Icons",
+    "options.enableIconTooltip":
+      "Insert icons into generated slides. When disabled, all visual elements use plain SVG shapes only.",
+    "options.iconRag": "Icon RAG Semantic Search",
     "options.iconRagTooltip":
-      "Use Gemini Embedding to semantically match icons to slide content. Requires GEMINI_API_KEY. When disabled, the executor picks icons directly from the library.",
+      "Use Gemini Embedding to semantically match icons to slide content. Requires GEMINI_API_KEY. When disabled, the executor picks icons directly from the library. (Disabling may cause icon mismatch)",
     "options.instruction": "Instruction",
     "options.instructionPlaceholder":
       "Example: keep it short, focus on the method, and leave related work brief.",
@@ -185,6 +188,7 @@ const translations: Record<Locale, Dictionary> = {
     "config.canvasFormat": "Canvas format",
     "config.numPages": "Pages",
     "config.visualCritic": "Visual critic",
+    "config.enableIcon": "Use Icons",
     "config.iconRag": "Icon RAG",
     "config.palette": "Palette",
     "config.font": "Font",
@@ -324,9 +328,12 @@ const translations: Record<Locale, Dictionary> = {
     "options.visualCritic": "视觉 QA（实验性）",
     "options.visualCriticTooltip":
       "把每页渲染成图像，再调用多模态 LLM 检查布局、对比度和装饰线等视觉问题。每页会多一次 LLM 调用。需要支持视觉的模型，纯文本模型会自动跳过此步骤。",
+    "options.enableIcon": "使用 Icon",
+    "options.enableIconTooltip":
+      "在生成的幻灯片中插入图标。关闭后所有视觉元素仅使用纯 SVG 形状。",
     "options.iconRag": "Icon RAG 语义搜索",
     "options.iconRagTooltip":
-      "使用 Gemini Embedding 语义匹配图标与幻灯片内容。需要配置 GEMINI_API_KEY。关闭后由 executor 直接从图标库中选取。",
+      "使用 Gemini Embedding 语义匹配图标与幻灯片内容。需要配置 GEMINI_API_KEY。关闭后由 executor 直接从图标库中选取。（关闭可能导致 icon 丢失）",
     "options.instruction": "补充指令",
     "options.instructionPlaceholder": "例如：控制在 12 页以内，重点放在方法和实验。",
     "progress.title": "流程监控",
@@ -399,6 +406,7 @@ const translations: Record<Locale, Dictionary> = {
     "config.canvasFormat": "画布格式",
     "config.numPages": "页数",
     "config.visualCritic": "视觉审查",
+    "config.enableIcon": "使用 Icon",
     "config.iconRag": "Icon RAG",
     "config.palette": "配色方案",
     "config.font": "字体",

@@ -2057,6 +2057,29 @@ html[lang="zh-CN"] .panel-title {
   word-break: break-word;
 }
 
+/* ── Icon options sub-section ───────────────────────────────────────────── */
+
+.options-icon-section {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--line);
+}
+
+.options-icon-sub {
+  margin-left: 1.25rem;
+  padding-left: 0.75rem;
+  border-left: 2px solid var(--line);
+  margin-top: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.options-api-key-field input {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+}
+
 .thumbnail-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));

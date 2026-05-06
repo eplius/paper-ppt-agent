@@ -55,12 +55,20 @@ def _extract_icon_queries(manuscript: str) -> list[str]:
 def _retrieve_icon_candidates(
     manuscript: str,
     lib: str,
+    gemini_api_key: str | None = None,
 ) -> str:
     """Retrieve icon candidates for the chosen library using RAG.
 
     Returns a formatted string listing candidate icons for injection
     into the strategist prompt.
     """
+    import os
+
+    # Temporarily set GEMINI_API_KEY if provided via frontend config
+    old_key = os.environ.get("GEMINI_API_KEY")
+    if gemini_api_key:
+        os.environ["GEMINI_API_KEY"] = gemini_api_key
+
     index = get_icon_index()
     if not index.is_available:
         logger.warning("Icon index not available, skipping RAG retrieval")
@@ -84,6 +92,13 @@ def _retrieve_icon_candidates(
     # Sort by score descending, take top N
     candidates.sort(key=lambda x: x["score"], reverse=True)
     candidates = candidates[:ICON_CANDIDATE_COUNT]
+
+    # Restore original key
+    if gemini_api_key:
+        if old_key is not None:
+            os.environ["GEMINI_API_KEY"] = old_key
+        else:
+            os.environ.pop("GEMINI_API_KEY", None)
 
     if not candidates:
         return ""
@@ -159,7 +174,9 @@ async def create_design_spec(
     detail_level: str = "normal",
     icon_library: str = "chunk",
     style_overrides: dict | None = None,
+    enable_icon: bool = True,
     enable_icon_rag: bool = True,
+    gemini_api_key: str | None = None,
 ) -> str:
     """Generate a design specification from a manuscript.
 
@@ -218,8 +235,14 @@ async def create_design_spec(
 
     # RAG icon retrieval: pre-select candidates from the full icon index
     icon_candidates_block = ""
-    if enable_icon_rag:
-        icon_candidates_block = _retrieve_icon_candidates(manuscript, icon_library)
+    if not enable_icon:
+        icon_candidates_block = (
+            "\n## Icon Usage: DISABLED\n"
+            "Do NOT use any `<use data-icon=\"...\"/>` elements in any slide. "
+            "Use plain SVG shapes (circles, rects, paths) for all visual elements instead."
+        )
+    elif enable_icon_rag:
+        icon_candidates_block = _retrieve_icon_candidates(manuscript, icon_library, gemini_api_key)
     if icon_candidates_block:
         user_parts.append(icon_candidates_block)
 

@@ -1,4 +1,4 @@
-import { Eye, HelpCircle, Puzzle, Settings2 } from "lucide-react";
+import { Eye, HelpCircle, Key, Puzzle, Settings2 } from "lucide-react";
 import { useLocale } from "../../i18n";
 
 interface OptionsPanelProps {
@@ -10,7 +10,9 @@ interface OptionsPanelProps {
   timeoutSeconds: string;
   instruction: string;
   enableVisualCritic: boolean;
+  enableIcon: boolean;
   enableIconRag: boolean;
+  geminiApiKey: string;
   onCanvasFormatChange: (value: string) => void;
   onLanguageModeChange: (value: "zh" | "en" | "custom") => void;
   onCustomLanguageChange: (value: string) => void;
@@ -19,7 +21,9 @@ interface OptionsPanelProps {
   onTimeoutSecondsChange: (value: string) => void;
   onInstructionChange: (value: string) => void;
   onEnableVisualCriticChange: (value: boolean) => void;
+  onEnableIconChange: (value: boolean) => void;
   onEnableIconRagChange: (value: boolean) => void;
+  onGeminiApiKeyChange: (value: string) => void;
 }
 
 export function OptionsPanel(props: OptionsPanelProps) {
@@ -119,28 +123,37 @@ export function OptionsPanel(props: OptionsPanelProps) {
             </span>
           </span>
         </label>
+      </div>
+
+      {/* Icon section */}
+      <div className="options-icon-section">
         <label className="visual-qa-field">
           <span
             className={`visual-qa-control ${
-              props.enableIconRag ? "visual-qa-control-active" : ""
+              props.enableIcon ? "visual-qa-control-active" : ""
             }`}
           >
             <input
               className="visual-qa-input"
               type="checkbox"
-              checked={props.enableIconRag}
-              onChange={(event) => props.onEnableIconRagChange(event.target.checked)}
+              checked={props.enableIcon}
+              onChange={(event) => {
+                props.onEnableIconChange(event.target.checked);
+                if (!event.target.checked) {
+                  props.onEnableIconRagChange(false);
+                }
+              }}
             />
             <span className="visual-qa-icon" aria-hidden="true">
               <Puzzle size={16} />
             </span>
             <span className="visual-qa-copy">
-              <span className="visual-qa-name">{t("options.iconRag")}</span>
+              <span className="visual-qa-name">{t("options.enableIcon")}</span>
             </span>
             <span
               className="visual-qa-help"
-              data-tooltip={t("options.iconRagTooltip")}
-              aria-label={t("options.iconRagTooltip")}
+              data-tooltip={t("options.enableIconTooltip")}
+              aria-label={t("options.enableIconTooltip")}
               tabIndex={0}
               onClick={(event) => event.preventDefault()}
             >
@@ -151,7 +164,59 @@ export function OptionsPanel(props: OptionsPanelProps) {
             </span>
           </span>
         </label>
+
+        {props.enableIcon ? (
+          <div className="options-icon-sub">
+            <label className="visual-qa-field">
+              <span
+                className={`visual-qa-control ${
+                  props.enableIconRag ? "visual-qa-control-active" : ""
+                }`}
+              >
+                <input
+                  className="visual-qa-input"
+                  type="checkbox"
+                  checked={props.enableIconRag}
+                  onChange={(event) => props.onEnableIconRagChange(event.target.checked)}
+                />
+                <span className="visual-qa-icon" aria-hidden="true">
+                  <Puzzle size={14} />
+                </span>
+                <span className="visual-qa-copy">
+                  <span className="visual-qa-name">{t("options.iconRag")}</span>
+                </span>
+                <span
+                  className="visual-qa-help"
+                  data-tooltip={t("options.iconRagTooltip")}
+                  aria-label={t("options.iconRagTooltip")}
+                  tabIndex={0}
+                  onClick={(event) => event.preventDefault()}
+                >
+                  <HelpCircle size={14} />
+                </span>
+                <span className="visual-qa-switch" aria-hidden="true">
+                  <span />
+                </span>
+              </span>
+            </label>
+            {props.enableIconRag ? (
+              <label className="form-field options-api-key-field">
+                <span>
+                  <Key size={12} style={{ marginRight: 4, verticalAlign: "middle" }} />
+                  Gemini API Key
+                </span>
+                <input
+                  type="password"
+                  value={props.geminiApiKey}
+                  onChange={(event) => props.onGeminiApiKeyChange(event.target.value)}
+                  placeholder="AIza..."
+                />
+              </label>
+            ) : null}
+          </div>
+        ) : null}
       </div>
+
       <label className="form-field">
         <span>{t("options.instruction")}</span>
         <textarea
