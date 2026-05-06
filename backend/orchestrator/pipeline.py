@@ -178,12 +178,17 @@ async def run_pipeline(
 
         critic_events: list[dict] = []
 
-        async def _on_critic(page_num: int, attempt: int, report: CriticReport) -> None:
-            critic_events.append({
+        async def _on_critic(
+            page_num: int, attempt: int, report: CriticReport, repair_prompt: str | None
+        ) -> None:
+            entry: dict = {
                 "page": page_num,
                 "attempt": attempt,
                 "report": report.to_dict(),
-            })
+            }
+            if repair_prompt is not None:
+                entry["repair_prompt"] = repair_prompt
+            critic_events.append(entry)
 
         async for page_num, svg_content in svg_executor.generate_svg_pages(
             design_spec,
@@ -489,12 +494,17 @@ async def run_refine_pipeline(
 
     refine_critic_events: list[dict] = []
 
-    async def _refine_on_critic(page_num: int, attempt: int, report: CriticReport) -> None:
-        refine_critic_events.append({
+    async def _refine_on_critic(
+        page_num: int, attempt: int, report: CriticReport, repair_prompt: str | None
+    ) -> None:
+        entry: dict = {
             "page": page_num,
             "attempt": attempt,
             "report": report.to_dict(),
-        })
+        }
+        if repair_prompt is not None:
+            entry["repair_prompt"] = repair_prompt
+        refine_critic_events.append(entry)
 
     refine_inventory = _load_figure_inventory(project_dir)
 

@@ -47,7 +47,7 @@ MAX_PRIOR_PAGES_IN_CONTEXT = 2
 # Initial response plus bounded same-page retries when no SVG can be extracted.
 MAX_SVG_EXTRACTION_ATTEMPTS = 3
 
-CriticCallback = Callable[[int, int, CriticReport], Awaitable[None]]
+CriticCallback = Callable[[int, int, CriticReport, str | None], Awaitable[None]]
 
 
 def _resolve_fig_tokens(
@@ -409,7 +409,7 @@ async def generate_svg_pages(
                     ),
                 )
                 if on_critic is not None:
-                    await on_critic(page_num, attempt - 1, report)
+                    await on_critic(page_num, attempt - 1, report, None)
 
                 # When the static critic is satisfied, run a single visual
                 # critic pass (if enabled). Visual issues become the next
@@ -434,7 +434,7 @@ async def generate_svg_pages(
                             reset_usage_context(snapshot)
                         if on_critic is not None:
                             await on_critic(
-                                page_num, attempt - 1, visual_outcome.report
+                                page_num, attempt - 1, visual_outcome.report, None
                             )
                         if (
                             visual_outcome.rendered
@@ -449,13 +449,14 @@ async def generate_svg_pages(
                         best_svg = svg_content
                         break
 
-                conversation.append(
-                    LLMMessage.user(
-                        report.to_prompt_block()
-                        + "\n\nReturn the complete corrected SVG only, "
-                        "wrapped in a ```svg code block."
-                    )
+                repair_prompt_text = (
+                    report.to_prompt_block()
+                    + "\n\nReturn the complete corrected SVG only, "
+                    "wrapped in a ```svg code block."
                 )
+                if on_critic is not None:
+                    await on_critic(page_num, attempt, report, repair_prompt_text)
+                conversation.append(LLMMessage.user(repair_prompt_text))
                 repair_temp = max(0.1, 0.3 - 0.1 * (attempt - 1))
                 snapshot = set_usage_context(
                     stage="repair", page=page_num, attempt=attempt

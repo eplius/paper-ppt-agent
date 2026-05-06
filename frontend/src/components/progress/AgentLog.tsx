@@ -17,6 +17,7 @@ export function AgentLog({ logs, criticEvents }: AgentLogProps) {
 
   const [criticOpen, setCriticOpen] = useState(false);
   const [expandedPages, setExpandedPages] = useState<Set<number>>(new Set());
+  const [expandedPrompts, setExpandedPrompts] = useState<Set<string>>(new Set());
 
   const togglePage = (page: number) => {
     setExpandedPages((prev) => {
@@ -25,6 +26,18 @@ export function AgentLog({ logs, criticEvents }: AgentLogProps) {
         next.delete(page);
       } else {
         next.add(page);
+      }
+      return next;
+    });
+  };
+
+  const togglePrompt = (key: string) => {
+    setExpandedPrompts((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
       }
       return next;
     });
@@ -115,6 +128,21 @@ export function AgentLog({ logs, criticEvents }: AgentLogProps) {
                                 </div>
                               ))
                             )}
+                            {ev.repair_prompt ? (
+                              <div className="critic-repair">
+                                <button
+                                  type="button"
+                                  className="critic-repair-toggle"
+                                  onClick={() => togglePrompt(`${ev.page}-${ev.attempt}`)}
+                                >
+                                  {expandedPrompts.has(`${ev.page}-${ev.attempt}`) ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+                                  Repair Prompt
+                                </button>
+                                {expandedPrompts.has(`${ev.page}-${ev.attempt}`) ? (
+                                  <pre className="critic-repair-text">{ev.repair_prompt}</pre>
+                                ) : null}
+                              </div>
+                            ) : null}
                           </div>
                         ))}
                       </div>
