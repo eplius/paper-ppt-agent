@@ -1839,17 +1839,17 @@ html[lang="zh-CN"] .panel-title {
   position: fixed;
   inset: 0;
   z-index: 1000;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(0, 0, 0, 0.65);
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 2rem;
+  padding: 1.5rem 2.5rem;
 }
 
 .svg-preview-panel {
-  width: 100%;
-  max-width: 960px;
-  max-height: 85vh;
+  width: 92vw;
+  max-width: 1400px;
+  height: 82vh;
   display: flex;
   flex-direction: column;
   border-radius: 16px;

@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { createPortal } from "react-dom";
 import { AlertTriangle, ChevronDown, ChevronRight, Eye, Terminal, X } from "lucide-react";
 import { useLocale } from "../../i18n";
 import { translateLogLine } from "../../lib/i18nStatus";
@@ -189,7 +190,7 @@ export function AgentLog({ logs, criticEvents, jobId }: AgentLogProps) {
         </div>
       ) : null}
     </section>
-    {archivePreview ? (
+    {archivePreview ? createPortal(
       <div className="svg-preview-overlay" onClick={() => setArchivePreview(null)}>
         <div className="svg-preview-panel" onClick={(e) => e.stopPropagation()}>
           <div className="svg-preview-header">
@@ -200,7 +201,8 @@ export function AgentLog({ logs, criticEvents, jobId }: AgentLogProps) {
           </div>
           <div className="svg-preview-content" dangerouslySetInnerHTML={{ __html: archivePreview.content }} />
         </div>
-      </div>
+      </div>,
+      document.body,
     ) : null}
     </>
   );

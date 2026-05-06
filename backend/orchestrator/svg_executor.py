@@ -48,6 +48,7 @@ MAX_PRIOR_PAGES_IN_CONTEXT = 2
 MAX_SVG_EXTRACTION_ATTEMPTS = 3
 
 CriticCallback = Callable[[int, int, CriticReport, str | None, str | None], Awaitable[None]]
+SvgUpdateCallback = Callable[[int, str], Awaitable[None]]
 
 
 def _resolve_fig_tokens(
@@ -273,6 +274,7 @@ async def generate_svg_pages(
     target_pages: set[int] | None = None,
     critic_config: CriticConfig | None = None,
     on_critic: CriticCallback | None = None,
+    on_svg_update: SvgUpdateCallback | None = None,
     figure_inventory: list[dict] | None = None,
     enable_visual_critic: bool = False,
     visual_critic_config: VisualCriticConfig | None = None,
@@ -499,6 +501,8 @@ async def generate_svg_pages(
                     conversation.append(
                         LLMMessage.assistant(f"```svg\n{repaired}\n```")
                     )
+                    if on_svg_update is not None:
+                        await on_svg_update(page_num, repaired)
                 else:
                     conversation.append(LLMMessage.assistant(response.content))
                     break

@@ -177,6 +177,7 @@ async def run_pipeline(
         generated = 0
 
         critic_events: list[dict] = []
+        svg_update_queue: list[tuple[int, str]] = []
 
         async def _on_critic(
             page_num: int,
@@ -196,6 +197,9 @@ async def run_pipeline(
                 entry["archive_path"] = archive_path
             critic_events.append(entry)
 
+        async def _on_svg_update(page_num: int, svg: str) -> None:
+            svg_update_queue.append((page_num, svg))
+
         async for page_num, svg_content in svg_executor.generate_svg_pages(
             design_spec,
             manuscript,
@@ -207,6 +211,7 @@ async def run_pipeline(
             detail_level=request.detail_level,
             extra_instruction=_build_style_overrides_block(request.style_overrides),
             on_critic=_on_critic,
+            on_svg_update=_on_svg_update,
             figure_inventory=figure_inventory,
             enable_visual_critic=request.enable_visual_critic,
         ):
@@ -217,6 +222,18 @@ async def run_pipeline(
             preview_svg = _embed_svg_preview(svg_content, project_dir)
 
             page_critic = [ev for ev in critic_events if ev["page"] == page_num]
+            # Send intermediate SVG updates from repair cycles
+            while svg_update_queue:
+                upd_page, upd_svg = svg_update_queue.pop(0)
+                upd_preview = _embed_svg_preview(upd_svg, project_dir)
+                yield ProgressEvent(
+                    "generation",
+                    "progress",
+                    f"Repaired slide {upd_page}",
+                    progress,
+                    data={"page": upd_page, "svg": upd_preview},
+                )
+
             yield ProgressEvent(
                 "generation",
                 "progress",
