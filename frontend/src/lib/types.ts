@@ -59,6 +59,38 @@ export interface GenerationOptions {
   template_id?: string;
 }
 
+export interface ImportStartResponse {
+  import_id: string;
+  status: string;
+  template_id?: string | null;
+}
+
+export interface ImportStatus {
+  import_id: string;
+  status: "processing" | "complete" | "error";
+  template_id?: string | null;
+  label?: string | null;
+  slide_count?: number;
+  export_mode?: string;
+  theme_colors?: string[];
+  error?: string | null;
+}
+
+export interface TemplatePreview {
+  template_id: string;
+  label: string;
+  cover_svg?: string;
+  content_svg?: string;
+  theme_colors?: string[];
+}
+
+export interface UserTemplateItem {
+  template_id: string;
+  label: string;
+  summary?: string;
+  slide_count?: number;
+}
+
 export interface DeepSeekSettings {
   thinking_enabled: boolean;
   reasoning_effort: "high" | "max";

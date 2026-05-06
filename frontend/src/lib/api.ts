@@ -2,6 +2,8 @@ import type {
   CancelJobResponse,
   GenerateRequestPayload,
   GenerateResponse,
+  ImportStartResponse,
+  ImportStatus,
   JobStatus,
   PreviewResponse,
   ProvidersResponse,
@@ -9,7 +11,9 @@ import type {
   RefineRequestPayload,
   RefineResponse,
   TemplateInfo,
+  TemplatePreview,
   UploadResponse,
+  UserTemplateItem,
   VersionDetailResponse,
   VersionsResponse,
 } from "./types";
@@ -117,6 +121,31 @@ export async function fetchProviders(): Promise<ProvidersResponse> {
 
 export async function fetchTemplates(): Promise<TemplateInfo[]> {
   return request<TemplateInfo[]>("/api/templates");
+}
+
+export async function uploadTemplatePptx(file: File): Promise<ImportStartResponse> {
+  const formData = new FormData();
+  formData.append("file", file);
+  return request<ImportStartResponse>("/api/templates/upload", {
+    method: "POST",
+    body: formData,
+  });
+}
+
+export async function fetchImportStatus(importId: string): Promise<ImportStatus> {
+  return request<ImportStatus>(`/api/templates/import/${importId}`);
+}
+
+export async function fetchTemplatePreview(templateId: string): Promise<TemplatePreview> {
+  return request<TemplatePreview>(`/api/templates/${templateId}/preview`);
+}
+
+export async function fetchImportedTemplates(): Promise<UserTemplateItem[]> {
+  return request<UserTemplateItem[]>("/api/templates/imported");
+}
+
+export async function deleteTemplate(templateId: string): Promise<void> {
+  await request<void>(`/api/templates/${templateId}`, { method: "DELETE" });
 }
 
 export async function generatePresentation(

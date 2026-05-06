@@ -27,6 +27,7 @@ from backend.config import settings
 
 _TEMPLATES_ROOT = settings.templates_dir / "layouts"
 _INDEX_PATH = _TEMPLATES_ROOT / "layouts_index.json"
+_USER_INDEX_PATH = _TEMPLATES_ROOT / "user_templates.json"
 
 # Regex to extract viewBox from an SVG root element.
 _VIEWBOX_RE = re.compile(r'viewBox=["\']([^"\']+)["\']')
@@ -115,6 +116,29 @@ def list_templates() -> list[TemplateInfo]:
                 keywords=meta.get("keywords", []),
             )
         )
+
+    # Append user-imported templates.
+    if _USER_INDEX_PATH.exists():
+        try:
+            user_data = json.loads(_USER_INDEX_PATH.read_text(encoding="utf-8"))
+            for tid, meta in user_data.get("templates", {}).items():
+                tdir = _TEMPLATES_ROOT / tid
+                if not tdir.is_dir():
+                    continue
+                results.append(
+                    TemplateInfo(
+                        template_id=tid,
+                        label=meta.get("label", tid),
+                        summary=meta.get("summary", ""),
+                        tone=meta.get("tone", ""),
+                        theme_mode=meta.get("themeMode", ""),
+                        category="user-imported",
+                        keywords=meta.get("keywords", []),
+                    )
+                )
+        except (json.JSONDecodeError, OSError):
+            pass
+
     return results
 
 
@@ -125,10 +149,19 @@ def load_template(template_id: str) -> TemplateContent | None:
         return None
 
     info: TemplateInfo
-    # Try to get metadata from index.
+    # Try to get metadata from built-in index first, then user index.
+    meta: dict = {}
     if _INDEX_PATH.exists():
         data = json.loads(_INDEX_PATH.read_text(encoding="utf-8"))
         meta = data.get("layouts", {}).get(template_id, {})
+    if not meta and _USER_INDEX_PATH.exists():
+        try:
+            user_data = json.loads(_USER_INDEX_PATH.read_text(encoding="utf-8"))
+            meta = user_data.get("templates", {}).get(template_id, {})
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    if meta:
         info = TemplateInfo(
             template_id=template_id,
             label=meta.get("label", template_id),

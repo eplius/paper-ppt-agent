@@ -15,6 +15,7 @@ import { useGeneration } from "../hooks/useGeneration";
 import { useLocale } from "../i18n";
 import { fetchTemplates } from "../lib/api";
 import type { DeepSeekSettings, OpenAISettings, TemplateInfo } from "../lib/types";
+import { TemplateManager } from "../components/template/TemplateManager";
 
 const ROUTING_PROFILE_STORAGE_KEY = "paper-ppt-agent-routing-profiles-v1";
 type LanguageMode = "zh" | "en" | "custom";
@@ -120,6 +121,7 @@ export function GeneratePage() {
   });
   const [templateId, setTemplateId] = useState("");
   const [templates, setTemplates] = useState<TemplateInfo[]>([]);
+  const [templateManagerOpen, setTemplateManagerOpen] = useState(false);
   const [cancelLoading, setCancelLoading] = useState(false);
   const [secondaryPanel, setSecondaryPanel] = useState<SecondaryPanel | null>(null);
   const freshRequested = searchParams.get("fresh") === "1";
@@ -327,6 +329,7 @@ export function GeneratePage() {
             onEnableIconRagChange={setEnableIconRag}
             onGeminiApiKeyChange={setGeminiApiKey}
             onTemplateChange={setTemplateId}
+            onManageTemplates={() => setTemplateManagerOpen(true)}
           />
           <div className="studio-secondary-actions">
             <button
@@ -463,6 +466,17 @@ export function GeneratePage() {
           {secondaryPanel === "log" ? <AgentLog logs={logs} criticEvents={criticEvents} jobId={jobId} /> : null}
         </div>
       </aside>
+      <TemplateManager
+        open={templateManagerOpen}
+        onClose={() => setTemplateManagerOpen(false)}
+        onSelect={(tid) => {
+          setTemplateId(tid);
+          // Refresh templates list to include newly imported ones
+          fetchTemplates()
+            .then((list) => setTemplates(list))
+            .catch(() => undefined);
+        }}
+      />
     </Layout>
   );
 }
