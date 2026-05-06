@@ -282,7 +282,9 @@ async def generate_svg_pages(
     """Generate SVG code for each slide page sequentially."""
     system_prompt = PROMPT_PATH.read_text(encoding="utf-8")
 
-    standards_path = settings.references_dir / "shared-standards.md"
+    standards_path = settings.references_dir / "shared-standards-essential.md"
+    if not standards_path.exists():
+        standards_path = settings.references_dir / "shared-standards.md"
     standards = ""
     if standards_path.exists():
         standards = standards_path.read_text(encoding="utf-8")

@@ -107,10 +107,7 @@ def _retrieve_icon_candidates(
     lines = [
         f"\n## Available Icon Candidates ({lib} library, {len(candidates)} icons)",
         "",
-        "These icons were retrieved by semantic search based on your manuscript content. "
-        "They are **optional resources** — only use an icon when it has a clear semantic role "
-        "(e.g., marking a section header, labeling a process step, highlighting a KPI). "
-        "Do NOT use icons as bullet-point prefixes or generic decoration.",
+        "Semantic-searched from manuscript content. Use only when justified by clear design purpose.",
         "",
         "| # | Icon Path | Category | Tags |",
         "|---|-----------|----------|------|",
@@ -127,11 +124,6 @@ def _retrieve_icon_candidates(
         "Example: `<use data-icon=\"chart-bar\" x=\"100\" y=\"200\" width=\"32\" height=\"32\" fill=\"#0076A8\"/>`"
     )
     lines.append("")
-    lines.append(
-        "**Important**: These are optional candidates. Most slides should use 0 icons. "
-        "Only add an icon when it has a clear design purpose — do NOT use icons as "
-        "bullet prefixes or decoration."
-    )
 
     return "\n".join(lines)
 
@@ -231,7 +223,6 @@ async def create_design_spec(
         f"- Style: {style_info['name']}",
         f"- Primary Color: {style_info['primary']}",
         f"- Accent Color: {style_info['accent']}",
-        "- Compact symbols are optional; use only when they carry clear semantic value.",
         f"- Typography: Sans-serif (Inter/Arial for body, bold for headings)",
         "\n## Hard Constraints",
         "- Respect the selected design style. Do not silently fall back to a default academic theme when another style is selected.",

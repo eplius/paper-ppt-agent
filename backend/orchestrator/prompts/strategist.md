@@ -23,12 +23,9 @@ Follow this structure exactly:
 - Grid system, spacing rules, alignment guidelines
 
 ### VI. Icon Usage (Optional)
-- Icons are **optional decorative aids**, not requirements. Most slides need 0 icons.
-- Only add an icon when it has a clear semantic role: marking a section header, labeling a process step, or highlighting a KPI metric.
-- Do NOT use icons as bullet-point prefixes, list decorations, or generic visual filler.
-- If an icon doesn't serve a clear purpose on a slide, leave it out — empty space is better than forced decoration.
-- Icon library preference (chunk/tabler-filled/tabler-outline)
-- Icon style guidelines, size constraints
+- Icons are optional. Most slides need 0 icons.
+- Only add when it has a clear semantic role: section header, process step, or KPI highlight.
+- Never use as bullet prefixes or generic decoration. Empty space is better than forced icons.
 
 ### VII. Visualization Reference List
 - Recommended chart types for data in the manuscript
