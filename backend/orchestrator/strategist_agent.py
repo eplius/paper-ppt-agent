@@ -179,6 +179,7 @@ async def create_design_spec(
     gemini_api_key: str | None = None,
     figure_inventory: list[dict] | None = None,
     debug_dir: Path | None = None,
+    template_context: str | None = None,
 ) -> str:
     """Generate a design specification from a manuscript.
 
@@ -230,6 +231,9 @@ async def create_design_spec(
         f"- {_language_constraint(language)}",
         "- Detail level `normal` should keep pages concise, `high` should allow moderately denser explanatory content, and `very_high` should accommodate richer explanations and fuller evidence coverage without becoming unreadable.",
     ]
+
+    if template_context:
+        user_parts.append(f"\n{template_context}")
 
     if is_deepseek_provider(llm, model):
         user_parts.append("\n" + deepseek_strategy_guidance(detail_level))

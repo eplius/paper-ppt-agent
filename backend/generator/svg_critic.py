@@ -496,6 +496,33 @@ def check_svg(svg_content: str, config: CriticConfig | None = None) -> CriticRep
                     )
                 )
 
+    # 3b. Text density check — warn if total text volume exceeds content area capacity.
+    if canvas and text_boxes:
+        # Estimate total character count across all text elements.
+        total_chars = 0
+        for _, el, _ in text_boxes:
+            txt = _text_of(el)
+            if txt:
+                total_chars += len(txt)
+        # Content area capacity estimate (16:9 defaults: 1200x520, font 16px).
+        ca_w, ca_h = (canvas[0] - 80, canvas[1] - 200)  # approximate content area
+        line_h = int(16 * 1.3)
+        max_lines = max(1, ca_h // line_h)
+        avg_char_w = 16 * 0.75
+        capacity = max_lines * max(1, int(ca_w / avg_char_w))
+        if total_chars > capacity * 0.8:
+            violations.append(
+                Violation(
+                    rule="text_too_dense",
+                    severity="warning",
+                    detail=(
+                        f"Total text ~{total_chars} chars exceeds 80% of estimated "
+                        f"content area capacity (~{capacity} chars). Consider splitting "
+                        "across multiple slides or condensing."
+                    ),
+                )
+            )
+
     # 4. Text-to-text overlap (coarse; tolerates small padding).
     seen_pairs: set[tuple[int, int]] = set()
     for i, (_, el_a, box_a) in enumerate(text_boxes):

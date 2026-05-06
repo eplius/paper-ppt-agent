@@ -56,6 +56,7 @@ class GenerationOptions(BaseModel):
     enable_icon: bool = True
     enable_icon_rag: bool = True
     gemini_api_key: str | None = None
+    template_id: str | None = None  # Template ID from assets/templates/layouts/
 
 
 class GenerateRequest(BaseModel):
