@@ -142,6 +142,9 @@ class CriticConfig:
     # How much a text box may stick out of the canvas before flagging.
     out_of_bounds_slack: float = 2.0
 
+    # Minimum distance from text to canvas edge (safety margin).
+    min_edge_margin: float = 30.0
+
     # Allowed color-palette hex values (lowercased, without '#').
     # None = don't check.
     allowed_palette: set[str] | None = None
@@ -220,11 +223,18 @@ def _iter_all(root: ET.Element):
 def _text_width_estimate(text: str, font_size: float) -> float:
     if not text:
         return 0.0
-    cjk_count = sum(1 for c in text if _CJK_RE.match(c))
-    latin_count = len(text) - cjk_count
-    return font_size * (
-        cjk_count * _CJK_CHAR_WIDTH_FACTOR + latin_count * _CHAR_WIDTH_FACTOR
-    )
+    # SVG renders \n as line breaks — estimate width of the longest line only.
+    lines = text.split("\n")
+    max_w = 0.0
+    for line in lines:
+        cjk_count = sum(1 for c in line if _CJK_RE.match(c))
+        latin_count = len(line) - cjk_count
+        w = font_size * (
+            cjk_count * _CJK_CHAR_WIDTH_FACTOR + latin_count * _CHAR_WIDTH_FACTOR
+        )
+        if w > max_w:
+            max_w = w
+    return max_w
 
 
 def _text_of(el: ET.Element) -> str:
@@ -388,6 +398,42 @@ def check_svg(svg_content: str, config: CriticConfig | None = None) -> CriticRep
                 )
             )
 
+    # 2b. Image href validation.
+    for el in ordered_elements:
+        if _strip_ns(el.tag) != "image":
+            continue
+        href = (
+            el.get("{http://www.w3.org/1999/xlink}href")
+            or el.get("href", "")
+        )
+        if not href:
+            violations.append(
+                Violation(
+                    rule="image_missing_href",
+                    severity="error",
+                    detail=(
+                        "`<image>` element has no `href` attribute. "
+                        "Add a valid image source or remove the element."
+                    ),
+                    element=_element_identifier(el),
+                )
+            )
+        elif href.startswith("#"):
+            # Internal SVG reference (e.g. #checkIcon) — not supported by PPTX converter.
+            violations.append(
+                Violation(
+                    rule="image_internal_ref",
+                    severity="error",
+                    detail=(
+                        f"`<image href=\"{href}\">` uses an internal SVG reference "
+                        "which is not supported by the PPTX converter. "
+                        "Use `<use data-icon=\"...\"/>` for icons or embed the image "
+                        "as a data URI."
+                    ),
+                    element=_element_identifier(el),
+                )
+            )
+
     # 3. Font-size + text bbox checks.
     text_boxes: list[tuple[int, ET.Element, tuple[float, float, float, float]]] = []
     for el in ordered_elements:
@@ -428,6 +474,22 @@ def check_svg(svg_content: str, config: CriticConfig | None = None) -> CriticRep
                         detail=(
                             f"Text extends outside canvas ({cw:.0f}x{ch:.0f}). "
                             f"Estimated bbox ({x:.0f},{y:.0f},{w:.0f},{h:.0f})."
+                        ),
+                        element=_element_identifier(el),
+                        bbox=bbox,
+                    )
+                )
+
+            # Edge margin check: text too close to canvas edges.
+            margin = cfg.min_edge_margin
+            if x < margin or y < margin or x + w > cw - margin or y + h > ch - margin:
+                violations.append(
+                    Violation(
+                        rule="text_too_close_to_edge",
+                        severity="warning",
+                        detail=(
+                            f"Text is too close to the canvas edge (min margin {margin:.0f}px). "
+                            f"Move it inward to avoid clipping in the exported PPTX."
                         ),
                         element=_element_identifier(el),
                         bbox=bbox,

@@ -49,9 +49,13 @@ class GenerationOptions(BaseModel):
     num_pages: int | None = None
     language: str = "zh"
     detail_level: str = "normal"
+    icon_library: str = "chunk"  # chunk / tabler-filled / tabler-outline
     timeout_seconds: int | None = Field(default=None, ge=1)
     style_overrides: StyleOverrides | None = None
     enable_visual_critic: bool = False
+    enable_icon: bool = True
+    enable_icon_rag: bool = True
+    gemini_api_key: str | None = None
 
 
 class GenerateRequest(BaseModel):

@@ -13,6 +13,8 @@ import re
 from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
 
+from PIL import Image
+
 from backend.config import settings
 from backend.generator.svg_critic import CriticConfig, CriticReport, Violation, check_svg
 from backend.generator.visual_critic import VisualCriticConfig, visual_check
@@ -45,7 +47,8 @@ MAX_PRIOR_PAGES_IN_CONTEXT = 2
 # Initial response plus bounded same-page retries when no SVG can be extracted.
 MAX_SVG_EXTRACTION_ATTEMPTS = 3
 
-CriticCallback = Callable[[int, int, CriticReport], Awaitable[None]]
+CriticCallback = Callable[[int, int, CriticReport, str | None, str | None], Awaitable[None]]
+SvgUpdateCallback = Callable[[int, str], Awaitable[None]]
 
 
 def _resolve_fig_tokens(
@@ -112,8 +115,21 @@ def _figure_guidance_block(used: list[dict], rejected: list[str] | None = None) 
         cap = (fig.get("caption") or "").strip().replace("\n", " ")
         if len(cap) > 160:
             cap = cap[:157] + "..."
+
+        # 读取实际图片尺寸，帮助executor设置正确的width/height
+        dim_info = ""
+        try:
+            img_path = Path(path)
+            if img_path.exists():
+                with Image.open(img_path) as img:
+                    w, h = img.size
+                    ratio = w / h
+                    dim_info = f" actual dimensions: {w}x{h} (ratio {ratio:.2f});"
+        except Exception:
+            pass
+
         lines.append(
-            f"- Allowed paper figure href: \"{path}\"; caption: {cap}"
+            f"- Allowed paper figure href: \"{path}\";{dim_info} caption: {cap}"
         )
     lines.append(
         "Use only the listed hrefs for extracted paper figures. Never substitute "
@@ -258,6 +274,7 @@ async def generate_svg_pages(
     target_pages: set[int] | None = None,
     critic_config: CriticConfig | None = None,
     on_critic: CriticCallback | None = None,
+    on_svg_update: SvgUpdateCallback | None = None,
     figure_inventory: list[dict] | None = None,
     enable_visual_critic: bool = False,
     visual_critic_config: VisualCriticConfig | None = None,
@@ -273,6 +290,7 @@ async def generate_svg_pages(
     pages = split_manuscript_pages(manuscript)
     svg_output_dir = project_dir / "svg_output"
     svg_output_dir.mkdir(parents=True, exist_ok=True)
+    repair_archive_dir = project_dir / "svg_archive" / "repair"
     used_paper_figures: dict[str, int] = {}
 
     extra_sections = []
@@ -393,8 +411,20 @@ async def generate_svg_pages(
                         used_paper_figures=used_paper_figures,
                     ),
                 )
+                # Archive pre-repair SVG on first violation detection
+                first_archive: str | None = None
+                if not report.passed:
+                    try:
+                        repair_archive_dir.mkdir(parents=True, exist_ok=True)
+                        archive_filename = f"p{page_num:02d}_attempt{attempt - 1}.svg"
+                        archive_path = repair_archive_dir / archive_filename
+                        archive_path.write_text(svg_content, encoding="utf-8")
+                        first_archive = f"svg_archive/repair/{archive_filename}"
+                    except OSError:
+                        pass
+
                 if on_critic is not None:
-                    await on_critic(page_num, attempt - 1, report)
+                    await on_critic(page_num, attempt - 1, report, None, first_archive)
 
                 # When the static critic is satisfied, run a single visual
                 # critic pass (if enabled). Visual issues become the next
@@ -419,7 +449,7 @@ async def generate_svg_pages(
                             reset_usage_context(snapshot)
                         if on_critic is not None:
                             await on_critic(
-                                page_num, attempt - 1, visual_outcome.report
+                                page_num, attempt - 1, visual_outcome.report, None, None
                             )
                         if (
                             visual_outcome.rendered
@@ -434,13 +464,25 @@ async def generate_svg_pages(
                         best_svg = svg_content
                         break
 
-                conversation.append(
-                    LLMMessage.user(
-                        report.to_prompt_block()
-                        + "\n\nReturn the complete corrected SVG only, "
-                        "wrapped in a ```svg code block."
-                    )
+                # Archive pre-repair SVG for before/after comparison
+                archive_rel: str | None = None
+                try:
+                    repair_archive_dir.mkdir(parents=True, exist_ok=True)
+                    archive_filename = f"p{page_num:02d}_attempt{attempt}.svg"
+                    archive_path = repair_archive_dir / archive_filename
+                    archive_path.write_text(svg_content, encoding="utf-8")
+                    archive_rel = f"svg_archive/repair/{archive_filename}"
+                except OSError:
+                    pass
+
+                repair_prompt_text = (
+                    report.to_prompt_block()
+                    + "\n\nReturn the complete corrected SVG only, "
+                    "wrapped in a ```svg code block."
                 )
+                if on_critic is not None:
+                    await on_critic(page_num, attempt, report, repair_prompt_text, archive_rel)
+                conversation.append(LLMMessage.user(repair_prompt_text))
                 repair_temp = max(0.1, 0.3 - 0.1 * (attempt - 1))
                 snapshot = set_usage_context(
                     stage="repair", page=page_num, attempt=attempt
@@ -459,6 +501,8 @@ async def generate_svg_pages(
                     conversation.append(
                         LLMMessage.assistant(f"```svg\n{repaired}\n```")
                     )
+                    if on_svg_update is not None:
+                        await on_svg_update(page_num, repaired)
                 else:
                     conversation.append(LLMMessage.assistant(response.content))
                     break

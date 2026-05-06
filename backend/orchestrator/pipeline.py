@@ -48,9 +48,13 @@ class GenerationRequest:
     detail_level: str = "normal"
     timeout_seconds: int | None = None
     style_overrides: dict | None = None  # {palette: [...], font: "...", density: "..."}
+    icon_library: str = "chunk"  # chunk / tabler-filled / tabler-outline
     deepseek_settings: dict | None = None
     openai_settings: dict | None = None
     enable_visual_critic: bool = False
+    enable_icon: bool = True
+    enable_icon_rag: bool = True
+    gemini_api_key: str | None = None
 
 
 async def run_pipeline(
@@ -155,7 +159,11 @@ async def run_pipeline(
             style=request.style,
             language=request.language,
             detail_level=request.detail_level,
+            icon_library=request.icon_library,
             style_overrides=request.style_overrides,
+            enable_icon=request.enable_icon,
+            enable_icon_rag=request.enable_icon_rag,
+            gemini_api_key=request.gemini_api_key,
         )
 
         # Save design spec
@@ -175,13 +183,28 @@ async def run_pipeline(
         generated = 0
 
         critic_events: list[dict] = []
+        svg_update_queue: list[tuple[int, str]] = []
 
-        async def _on_critic(page_num: int, attempt: int, report: CriticReport) -> None:
-            critic_events.append({
+        async def _on_critic(
+            page_num: int,
+            attempt: int,
+            report: CriticReport,
+            repair_prompt: str | None,
+            archive_path: str | None,
+        ) -> None:
+            entry: dict = {
                 "page": page_num,
                 "attempt": attempt,
                 "report": report.to_dict(),
-            })
+            }
+            if repair_prompt is not None:
+                entry["repair_prompt"] = repair_prompt
+            if archive_path is not None:
+                entry["archive_path"] = archive_path
+            critic_events.append(entry)
+
+        async def _on_svg_update(page_num: int, svg: str) -> None:
+            svg_update_queue.append((page_num, svg))
 
         async for page_num, svg_content in svg_executor.generate_svg_pages(
             design_spec,
@@ -194,6 +217,7 @@ async def run_pipeline(
             detail_level=request.detail_level,
             extra_instruction=_build_style_overrides_block(request.style_overrides),
             on_critic=_on_critic,
+            on_svg_update=_on_svg_update,
             figure_inventory=figure_inventory,
             enable_visual_critic=request.enable_visual_critic,
         ):
@@ -204,6 +228,18 @@ async def run_pipeline(
             preview_svg = _embed_svg_preview(svg_content, project_dir)
 
             page_critic = [ev for ev in critic_events if ev["page"] == page_num]
+            # Send intermediate SVG updates from repair cycles
+            while svg_update_queue:
+                upd_page, upd_svg = svg_update_queue.pop(0)
+                upd_preview = _embed_svg_preview(upd_svg, project_dir)
+                yield ProgressEvent(
+                    "generation",
+                    "progress",
+                    f"Repaired slide {upd_page}",
+                    progress,
+                    data={"page": upd_page, "svg": upd_preview},
+                )
+
             yield ProgressEvent(
                 "generation",
                 "progress",
@@ -223,6 +259,8 @@ async def run_pipeline(
             0.75,
             data={"critic": critic_events},
         )
+
+        _save_critic_history(project_dir, critic_events)
 
         # Stage 5: Post-processing
         set_usage_context(stage="postprocess")
@@ -364,9 +402,13 @@ class RefineRequest:
     target_pages: list[int] | None = None
     allow_structure_changes: bool = False
     style_overrides: dict | None = None
+    icon_library: str = "chunk"
     deepseek_settings: dict | None = None
     openai_settings: dict | None = None
     enable_visual_critic: bool = False
+    enable_icon: bool = True
+    enable_icon_rag: bool = True
+    gemini_api_key: str | None = None
 
 
 async def run_refine_pipeline(
@@ -458,7 +500,11 @@ async def run_refine_pipeline(
             style=request.style,
             language=request.language,
             detail_level=request.detail_level,
+            icon_library=request.icon_library,
             style_overrides=request.style_overrides,
+            enable_icon=request.enable_icon,
+            enable_icon_rag=request.enable_icon_rag,
+            gemini_api_key=request.gemini_api_key,
         )
         design_spec_path.write_text(design_spec, encoding="utf-8")
         yield ProgressEvent("strategy", "complete", "Design spec rebuilt", 0.30)
@@ -483,12 +529,23 @@ async def run_refine_pipeline(
 
     refine_critic_events: list[dict] = []
 
-    async def _refine_on_critic(page_num: int, attempt: int, report: CriticReport) -> None:
-        refine_critic_events.append({
+    async def _refine_on_critic(
+        page_num: int,
+        attempt: int,
+        report: CriticReport,
+        repair_prompt: str | None,
+        archive_path: str | None,
+    ) -> None:
+        entry: dict = {
             "page": page_num,
             "attempt": attempt,
             "report": report.to_dict(),
-        })
+        }
+        if repair_prompt is not None:
+            entry["repair_prompt"] = repair_prompt
+        if archive_path is not None:
+            entry["archive_path"] = archive_path
+        refine_critic_events.append(entry)
 
     refine_inventory = _load_figure_inventory(project_dir)
 
@@ -549,6 +606,7 @@ async def run_refine_pipeline(
 
     # Persist feedback history to disk for auditability
     _save_feedback_history(project_dir, request.feedback_history)
+    _save_critic_history(project_dir, refine_critic_events, refine=True)
 
     yield ProgressEvent(
         "export", "complete",
@@ -650,6 +708,33 @@ def _save_feedback_history(project_dir: Path, history: list[str]) -> None:
 
     path = project_dir / "feedback_history.json"
     path.write_text(json.dumps(history, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _save_critic_history(
+    project_dir: Path,
+    critic_events: list[dict],
+    *,
+    refine: bool = False,
+) -> None:
+    """Persist critic events to critic_history.json for post-run analysis."""
+    import json
+    from datetime import datetime
+
+    path = project_dir / "critic_history.json"
+    existing: dict = {}
+    if path.exists():
+        try:
+            existing = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            existing = {}
+
+    key = "refine_events" if refine else "generation_events"
+    existing[key] = critic_events
+    existing["updated_at"] = datetime.now().isoformat()
+    if "created_at" not in existing:
+        existing["created_at"] = existing["updated_at"]
+
+    path.write_text(json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def _seed_svg_output_for_targeted_refine(project_dir: Path, target_pages: list[int]) -> None:

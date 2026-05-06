@@ -178,6 +178,7 @@ async def refine_presentation(request: RefineRequest) -> RefineResponse:
             if options.style_overrides
             else None
         ),
+        icon_library=options.icon_library,
         deepseek_settings=(
             request.model_settings.deepseek_settings.model_dump()
             if request.model_settings.provider == "deepseek"
@@ -191,6 +192,9 @@ async def refine_presentation(request: RefineRequest) -> RefineResponse:
             else None
         ),
         enable_visual_critic=options.enable_visual_critic,
+        enable_icon=options.enable_icon,
+        enable_icon_rag=options.enable_icon_rag,
+        gemini_api_key=options.gemini_api_key,
     )
 
     task = asyncio.create_task(_run_refine_job(job.id, pipeline_request))

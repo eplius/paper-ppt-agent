@@ -126,6 +126,7 @@ async def generate_presentation(request: GenerateRequest) -> GenerateResponse:
             if request.options.style_overrides
             else None
         ),
+        icon_library=request.options.icon_library,
         deepseek_settings=(
             request.model_settings.deepseek_settings.model_dump()
             if request.model_settings.provider == "deepseek"
@@ -139,6 +140,9 @@ async def generate_presentation(request: GenerateRequest) -> GenerateResponse:
             else None
         ),
         enable_visual_critic=request.options.enable_visual_critic,
+        enable_icon=request.options.enable_icon,
+        enable_icon_rag=request.options.enable_icon_rag,
+        gemini_api_key=request.options.gemini_api_key,
     )
 
     task = asyncio.create_task(_run_generation_job(job.id, pipeline_request))

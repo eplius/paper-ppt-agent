@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Response, status
 
 from backend.api.schemas import PreviewResponse, PreviewSlide
 from backend.config import settings
@@ -11,6 +11,26 @@ from backend.generator.svg_finalize.render_ready import prepare_svg_file_for_ren
 from backend.session.manager import session_manager
 
 router = APIRouter()
+
+
+@router.get("/critic-archive/{job_id}/{filename}")
+async def get_critic_archive_svg(job_id: str, filename: str) -> Response:
+    """Serve a pre-repair archived SVG from svg_archive/repair/."""
+    job = session_manager.get_job(job_id)
+    if job is None or not job.project_dir:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found.")
+
+    # Sanitize filename to prevent path traversal
+    safe_name = Path(filename).name
+    if safe_name != filename or ".." in filename:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid filename.")
+
+    svg_path = Path(job.project_dir) / "svg_archive" / "repair" / safe_name
+    if not svg_path.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Archive not found.")
+
+    content = svg_path.read_text(encoding="utf-8")
+    return Response(content=content, media_type="image/svg+xml")
 
 
 @router.get("/preview/{job_id}", response_model=PreviewResponse)
