@@ -34,6 +34,16 @@ export interface StyleOverridesPayload {
   density?: "compact" | "normal" | "spacious";
 }
 
+export interface TemplateInfo {
+  template_id: string;
+  label: string;
+  summary: string;
+  tone: string;
+  theme_mode: string;
+  category: string;
+  keywords: string[];
+}
+
 export interface GenerationOptions {
   canvas_format: string;
   style: string;
@@ -46,6 +56,7 @@ export interface GenerationOptions {
   enable_icon?: boolean;
   enable_icon_rag?: boolean;
   gemini_api_key?: string;
+  template_id?: string;
 }
 
 export interface DeepSeekSettings {

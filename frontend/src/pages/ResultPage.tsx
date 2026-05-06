@@ -635,6 +635,7 @@ function ConfigViewer({
   if (options?.enable_visual_critic !== undefined) entries.push({ label: t("config.visualCritic"), value: options.enable_visual_critic ? "ON" : "OFF" });
   if (options?.enable_icon !== undefined) entries.push({ label: t("config.enableIcon"), value: options.enable_icon ? "ON" : "OFF" });
   if (options?.enable_icon_rag !== undefined) entries.push({ label: t("config.iconRag"), value: options.enable_icon_rag ? "ON" : "OFF" });
+  if (options?.template_id) entries.push({ label: t("config.template"), value: options.template_id });
   if (options?.style_overrides?.palette?.length) entries.push({ label: t("config.palette"), value: options.style_overrides.palette.join(", ") });
   if (options?.style_overrides?.font) entries.push({ label: t("config.font"), value: options.style_overrides.font });
   if (options?.style_overrides?.density) entries.push({ label: t("config.density"), value: options.style_overrides.density });

@@ -1,5 +1,6 @@
-import { Eye, HelpCircle, Key, Puzzle, Settings2 } from "lucide-react";
+import { Eye, HelpCircle, Key, Layers, Puzzle, Settings2 } from "lucide-react";
 import { useLocale } from "../../i18n";
+import type { TemplateInfo } from "../../lib/types";
 
 interface OptionsPanelProps {
   canvasFormat: string;
@@ -13,6 +14,8 @@ interface OptionsPanelProps {
   enableIcon: boolean;
   enableIconRag: boolean;
   geminiApiKey: string;
+  templateId: string;
+  templates: TemplateInfo[];
   onCanvasFormatChange: (value: string) => void;
   onLanguageModeChange: (value: "zh" | "en" | "custom") => void;
   onCustomLanguageChange: (value: string) => void;
@@ -24,6 +27,7 @@ interface OptionsPanelProps {
   onEnableIconChange: (value: boolean) => void;
   onEnableIconRagChange: (value: boolean) => void;
   onGeminiApiKeyChange: (value: string) => void;
+  onTemplateChange: (value: string) => void;
 }
 
 export function OptionsPanel(props: OptionsPanelProps) {
@@ -35,6 +39,22 @@ export function OptionsPanel(props: OptionsPanelProps) {
         <p className="panel-title">{t("options.title")}</p>
       </div>
       <div className="options-grid">
+        {props.templates.length > 0 ? (
+          <label className="form-field">
+            <span>
+              <Layers size={12} style={{ marginRight: 4, verticalAlign: "middle" }} />
+              {t("options.template")}
+            </span>
+            <select value={props.templateId} onChange={(event) => props.onTemplateChange(event.target.value)}>
+              <option value="">{t("options.templateNone")}</option>
+              {props.templates.map((tmpl) => (
+                <option key={tmpl.template_id} value={tmpl.template_id}>
+                  {tmpl.label || tmpl.template_id}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
         <label className="form-field">
           <span>{t("options.canvas")}</span>
           <select value={props.canvasFormat} onChange={(event) => props.onCanvasFormatChange(event.target.value)}>

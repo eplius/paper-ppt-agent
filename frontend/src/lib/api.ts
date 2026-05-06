@@ -8,6 +8,7 @@ import type {
   ReexportResponse,
   RefineRequestPayload,
   RefineResponse,
+  TemplateInfo,
   UploadResponse,
   VersionDetailResponse,
   VersionsResponse,
@@ -112,6 +113,10 @@ export async function uploadPaper(file: File): Promise<UploadResponse> {
 
 export async function fetchProviders(): Promise<ProvidersResponse> {
   return request<ProvidersResponse>("/api/providers");
+}
+
+export async function fetchTemplates(): Promise<TemplateInfo[]> {
+  return request<TemplateInfo[]>("/api/templates");
 }
 
 export async function generatePresentation(

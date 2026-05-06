@@ -222,18 +222,33 @@ async def create_design_spec(
         f"- Page Count: {page_count}",
         f"- Audience: Academic/Research community",
         f"- Style: {style_info['name']}",
-        f"- Primary Color: {style_info['primary']}",
-        f"- Accent Color: {style_info['accent']}",
-        f"- Typography: Sans-serif (Inter/Arial for body, bold for headings)",
-        "\n## Hard Constraints",
-        "- Respect the selected design style. Do not silently fall back to a default academic theme when another style is selected.",
-        f"- The visible slide language must be `{language}`.",
-        f"- {_language_constraint(language)}",
-        "- Detail level `normal` should keep pages concise, `high` should allow moderately denser explanatory content, and `very_high` should accommodate richer explanations and fuller evidence coverage without becoming unreadable.",
     ]
 
     if template_context:
+        # When a template is active, the template's color scheme and
+        # typography take precedence.  Only inject the style name for
+        # content-strategy guidance (academic vs consulting vs tech),
+        # but skip primary/accent color so they don't conflict.
+        user_parts.extend([
+            "- Color scheme & Typography: defined by the selected template (see Template Reference below)",
+            "\n## Hard Constraints",
+            "- The template's color scheme, typography, and page structure MUST take precedence over any style defaults.",
+            f"- The visible slide language must be `{language}`.",
+            f"- {_language_constraint(language)}",
+            "- Detail level `normal` should keep pages concise, `high` should allow moderately denser explanatory content, and `very_high` should accommodate richer explanations and fuller evidence coverage without becoming unreadable.",
+        ])
         user_parts.append(f"\n{template_context}")
+    else:
+        user_parts.extend([
+            f"- Primary Color: {style_info['primary']}",
+            f"- Accent Color: {style_info['accent']}",
+            f"- Typography: Sans-serif (Inter/Arial for body, bold for headings)",
+            "\n## Hard Constraints",
+            "- Respect the selected design style. Do not silently fall back to a default academic theme when another style is selected.",
+            f"- The visible slide language must be `{language}`.",
+            f"- {_language_constraint(language)}",
+            "- Detail level `normal` should keep pages concise, `high` should allow moderately denser explanatory content, and `very_high` should accommodate richer explanations and fuller evidence coverage without becoming unreadable.",
+        ])
 
     if is_deepseek_provider(llm, model):
         user_parts.append("\n" + deepseek_strategy_guidance(detail_level))

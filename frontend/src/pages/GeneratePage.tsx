@@ -13,7 +13,8 @@ import { FilePreview } from "../components/upload/FilePreview";
 import { UploadZone } from "../components/upload/UploadZone";
 import { useGeneration } from "../hooks/useGeneration";
 import { useLocale } from "../i18n";
-import type { DeepSeekSettings, OpenAISettings } from "../lib/types";
+import { fetchTemplates } from "../lib/api";
+import type { DeepSeekSettings, OpenAISettings, TemplateInfo } from "../lib/types";
 
 const ROUTING_PROFILE_STORAGE_KEY = "paper-ppt-agent-routing-profiles-v1";
 type LanguageMode = "zh" | "en" | "custom";
@@ -117,6 +118,8 @@ export function GeneratePage() {
   const [geminiApiKey, setGeminiApiKey] = useState(() => {
     try { return window.localStorage.getItem(GEMINI_KEY_STORAGE) ?? ""; } catch { return ""; }
   });
+  const [templateId, setTemplateId] = useState("");
+  const [templates, setTemplates] = useState<TemplateInfo[]>([]);
   const [cancelLoading, setCancelLoading] = useState(false);
   const [secondaryPanel, setSecondaryPanel] = useState<SecondaryPanel | null>(null);
   const freshRequested = searchParams.get("fresh") === "1";
@@ -152,6 +155,12 @@ export function GeneratePage() {
   useEffect(() => {
     void loadProviders();
   }, [loadProviders]);
+
+  useEffect(() => {
+    fetchTemplates()
+      .then((list) => setTemplates(list))
+      .catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     if (freshRequested) {
@@ -243,6 +252,7 @@ export function GeneratePage() {
     setEnableIcon(options.enable_icon !== false);
     setEnableIconRag(options.enable_icon_rag !== false);
     setGeminiApiKey(options.gemini_api_key ?? "");
+    setTemplateId(options.template_id ?? "");
   }, [selectedRunConfig, targetJobId]);
 
   useEffect(() => {
@@ -303,6 +313,8 @@ export function GeneratePage() {
             enableIcon={enableIcon}
             enableIconRag={enableIconRag}
             geminiApiKey={geminiApiKey}
+            templateId={templateId}
+            templates={templates}
             onCanvasFormatChange={setCanvasFormat}
             onLanguageModeChange={setLanguageMode}
             onCustomLanguageChange={setCustomLanguage}
@@ -314,6 +326,7 @@ export function GeneratePage() {
             onEnableIconChange={setEnableIcon}
             onEnableIconRagChange={setEnableIconRag}
             onGeminiApiKeyChange={setGeminiApiKey}
+            onTemplateChange={setTemplateId}
           />
           <div className="studio-secondary-actions">
             <button
@@ -384,6 +397,7 @@ export function GeneratePage() {
                   enable_icon: enableIcon,
                   enable_icon_rag: enableIconRag,
                   gemini_api_key: geminiApiKey || undefined,
+                  template_id: templateId || undefined,
                 },
               });
               connect(jobId);
