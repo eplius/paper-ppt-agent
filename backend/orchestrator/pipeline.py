@@ -226,6 +226,8 @@ async def run_pipeline(
             data={"critic": critic_events},
         )
 
+        _save_critic_history(project_dir, critic_events)
+
         # Stage 5: Post-processing
         set_usage_context(stage="postprocess")
         yield ProgressEvent("postprocess", "started", "Finalizing SVGs...")
@@ -553,6 +555,7 @@ async def run_refine_pipeline(
 
     # Persist feedback history to disk for auditability
     _save_feedback_history(project_dir, request.feedback_history)
+    _save_critic_history(project_dir, refine_critic_events, refine=True)
 
     yield ProgressEvent(
         "export", "complete",
@@ -654,6 +657,33 @@ def _save_feedback_history(project_dir: Path, history: list[str]) -> None:
 
     path = project_dir / "feedback_history.json"
     path.write_text(json.dumps(history, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _save_critic_history(
+    project_dir: Path,
+    critic_events: list[dict],
+    *,
+    refine: bool = False,
+) -> None:
+    """Persist critic events to critic_history.json for post-run analysis."""
+    import json
+    from datetime import datetime
+
+    path = project_dir / "critic_history.json"
+    existing: dict = {}
+    if path.exists():
+        try:
+            existing = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            existing = {}
+
+    key = "refine_events" if refine else "generation_events"
+    existing[key] = critic_events
+    existing["updated_at"] = datetime.now().isoformat()
+    if "created_at" not in existing:
+        existing["created_at"] = existing["updated_at"]
+
+    path.write_text(json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def _seed_svg_output_for_targeted_refine(project_dir: Path, target_pages: list[int]) -> None:

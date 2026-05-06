@@ -75,6 +75,7 @@ export function GeneratePage() {
     job,
     slides,
     logs,
+    criticEvents,
     selectedSlide,
     connectionStatus,
     error,
@@ -423,7 +424,7 @@ export function GeneratePage() {
               onOverridesChange={setStyleOverrides}
             />
           ) : null}
-          {secondaryPanel === "log" ? <AgentLog logs={logs} /> : null}
+          {secondaryPanel === "log" ? <AgentLog logs={logs} criticEvents={criticEvents} /> : null}
         </div>
       </aside>
     </Layout>

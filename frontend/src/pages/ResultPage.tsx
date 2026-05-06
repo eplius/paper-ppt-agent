@@ -64,6 +64,7 @@ export function ResultPage() {
     slides: liveSlides,
     result: liveResult,
     logs,
+    criticEvents,
     connectionStatus,
   } = useGeneration();
   // Direct-bind the global error-store setters so we can mirror local
@@ -509,7 +510,7 @@ export function ResultPage() {
         <section className="result-refine-monitor">
           <div className="column-stack">
             <ProgressPanel job={liveJob} connectionStatus={connectionStatus} />
-            <AgentLog logs={logs} />
+            <AgentLog logs={logs} criticEvents={criticEvents} />
           </div>
         </section>
       ) : null}

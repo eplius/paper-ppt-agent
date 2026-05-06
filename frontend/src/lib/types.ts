@@ -152,6 +152,28 @@ export interface JobEvent {
   last_seq?: number;
 }
 
+export interface CriticViolation {
+  rule: string;
+  severity: "error" | "warning";
+  detail: string;
+  element?: string | null;
+  bbox?: number[] | null;
+}
+
+export interface CriticReport {
+  passed: boolean;
+  error_count: number;
+  warning_count: number;
+  canvas?: number[] | null;
+  violations: CriticViolation[];
+}
+
+export interface CriticEvent {
+  page: number;
+  attempt: number;
+  report: CriticReport;
+}
+
 /** Heartbeat ping emitted by the server every ~20s of silence. */
 export interface JobPingEvent {
   type: "ping";
