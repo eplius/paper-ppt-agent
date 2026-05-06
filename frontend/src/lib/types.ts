@@ -43,6 +43,9 @@ export interface GenerationOptions {
   timeout_seconds?: number;
   style_overrides?: StyleOverridesPayload;
   enable_visual_critic?: boolean;
+  enable_icon?: boolean;
+  enable_icon_rag?: boolean;
+  gemini_api_key?: string;
 }
 
 export interface DeepSeekSettings {
@@ -150,6 +153,30 @@ export interface JobEvent {
   // Snapshot frames carry the latest known seq so the client can ask for
   // replays from the right point even when no event has been delivered yet.
   last_seq?: number;
+}
+
+export interface CriticViolation {
+  rule: string;
+  severity: "error" | "warning";
+  detail: string;
+  element?: string | null;
+  bbox?: number[] | null;
+}
+
+export interface CriticReport {
+  passed: boolean;
+  error_count: number;
+  warning_count: number;
+  canvas?: number[] | null;
+  violations: CriticViolation[];
+}
+
+export interface CriticEvent {
+  page: number;
+  attempt: number;
+  report: CriticReport;
+  repair_prompt?: string;
+  archive_path?: string;
 }
 
 /** Heartbeat ping emitted by the server every ~20s of silence. */

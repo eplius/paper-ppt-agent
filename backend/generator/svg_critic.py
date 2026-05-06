@@ -223,11 +223,18 @@ def _iter_all(root: ET.Element):
 def _text_width_estimate(text: str, font_size: float) -> float:
     if not text:
         return 0.0
-    cjk_count = sum(1 for c in text if _CJK_RE.match(c))
-    latin_count = len(text) - cjk_count
-    return font_size * (
-        cjk_count * _CJK_CHAR_WIDTH_FACTOR + latin_count * _CHAR_WIDTH_FACTOR
-    )
+    # SVG renders \n as line breaks — estimate width of the longest line only.
+    lines = text.split("\n")
+    max_w = 0.0
+    for line in lines:
+        cjk_count = sum(1 for c in line if _CJK_RE.match(c))
+        latin_count = len(line) - cjk_count
+        w = font_size * (
+            cjk_count * _CJK_CHAR_WIDTH_FACTOR + latin_count * _CHAR_WIDTH_FACTOR
+        )
+        if w > max_w:
+            max_w = w
+    return max_w
 
 
 def _text_of(el: ET.Element) -> str:

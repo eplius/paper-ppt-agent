@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import ReactECharts from "echarts-for-react";
 import type { EChartsOption } from "echarts";
 import { Layout } from "../components/layout/Layout";
@@ -73,6 +73,13 @@ export function LogsPage() {
   const [records, setRecords] = useState<UsageRecord[]>([]);
   const [connected, setConnected] = useState(false);
   const [chartRevision, setChartRevision] = useState(0);
+
+  // Filters
+  const [filterStage, setFilterStage] = useState("");
+  const [filterModel, setFilterModel] = useState("");
+  const [filterPage, setFilterPage] = useState("");
+  const [filterJob, setFilterJob] = useState("");
+  const [selectedRecord, setSelectedRecord] = useState<UsageRecord | null>(null);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -156,6 +163,31 @@ export function LogsPage() {
     () => [...byStage].sort((left, right) => right.total_tokens - left.total_tokens),
     [byStage],
   );
+
+  const uniqueStages = useMemo(() => {
+    const set = new Set(records.map((r) => r.stage).filter(Boolean));
+    return Array.from(set).sort() as string[];
+  }, [records]);
+  const uniqueModels = useMemo(() => {
+    const set = new Set(records.map((r) => r.model));
+    return Array.from(set).sort();
+  }, [records]);
+
+  const filteredRecords = useMemo(() => {
+    let items = records;
+    if (filterStage) items = items.filter((r) => r.stage === filterStage);
+    if (filterModel) items = items.filter((r) => r.model === filterModel);
+    if (filterPage) items = items.filter((r) => r.page != null && String(r.page) === filterPage);
+    if (filterJob) items = items.filter((r) => r.job_id?.startsWith(filterJob));
+    return items;
+  }, [records, filterStage, filterModel, filterPage, filterJob]);
+
+  const clearFilters = useCallback(() => {
+    setFilterStage("");
+    setFilterModel("");
+    setFilterPage("");
+    setFilterJob("");
+  }, []);
 
   const formatter = new Intl.DateTimeFormat(locale === "zh" ? "zh-CN" : "en-US", {
     month: "numeric",
@@ -440,7 +472,50 @@ export function LogsPage() {
         </section>
 
         <section className="logs-card">
-          <h2>{t("logs.recent")}</h2>
+          <div className="logs-table-header">
+            <h2>{t("logs.recent")}</h2>
+            <div className="logs-filters">
+              <select
+                className="logs-filter-select"
+                value={filterStage}
+                onChange={(e) => setFilterStage(e.target.value)}
+              >
+                <option value="">Stage</option>
+                {uniqueStages.map((s) => (
+                  <option key={s} value={s}>{translateStageStatus(s, locale, "logs")}</option>
+                ))}
+              </select>
+              <select
+                className="logs-filter-select"
+                value={filterModel}
+                onChange={(e) => setFilterModel(e.target.value)}
+              >
+                <option value="">Model</option>
+                {uniqueModels.map((m) => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
+              <input
+                className="logs-filter-input"
+                type="text"
+                placeholder="Page"
+                value={filterPage}
+                onChange={(e) => setFilterPage(e.target.value.replace(/\D/g, ""))}
+              />
+              <input
+                className="logs-filter-input"
+                type="text"
+                placeholder="Job ID"
+                value={filterJob}
+                onChange={(e) => setFilterJob(e.target.value)}
+              />
+              {(filterStage || filterModel || filterPage || filterJob) ? (
+                <button type="button" className="logs-filter-clear" onClick={clearFilters}>
+                  Clear
+                </button>
+              ) : null}
+            </div>
+          </div>
           <div className="logs-table-wrap">
             <table className="logs-table">
               <thead>
@@ -459,8 +534,12 @@ export function LogsPage() {
                 </tr>
               </thead>
               <tbody>
-                {records.map((r, idx) => (
-                  <tr key={`${r.ts}-${idx}`}>
+                {filteredRecords.map((r, idx) => (
+                  <tr
+                    key={`${r.ts}-${idx}`}
+                    className={selectedRecord === r ? "logs-row-selected" : ""}
+                    onClick={() => setSelectedRecord(selectedRecord === r ? null : r)}
+                  >
                     <td>{formatter.format(new Date(r.ts))}</td>
                     <td>{r.provider}</td>
                     <td>{r.model}</td>
@@ -479,6 +558,60 @@ export function LogsPage() {
               </tbody>
             </table>
           </div>
+          {selectedRecord ? (
+            <div className="logs-detail-panel">
+              <div className="logs-detail-header">
+                <span className="logs-detail-title">Record Detail</span>
+                <button type="button" className="logs-detail-close" onClick={() => setSelectedRecord(null)}>×</button>
+              </div>
+              <div className="logs-detail-grid">
+                <div className="logs-detail-item">
+                  <span className="logs-detail-label">Time</span>
+                  <span className="logs-detail-value">{formatter.format(new Date(selectedRecord.ts))}</span>
+                </div>
+                <div className="logs-detail-item">
+                  <span className="logs-detail-label">Provider</span>
+                  <span className="logs-detail-value">{selectedRecord.provider}</span>
+                </div>
+                <div className="logs-detail-item">
+                  <span className="logs-detail-label">Model</span>
+                  <span className="logs-detail-value">{selectedRecord.model}</span>
+                </div>
+                <div className="logs-detail-item">
+                  <span className="logs-detail-label">Stage</span>
+                  <span className="logs-detail-value">{selectedRecord.stage ? translateStageStatus(selectedRecord.stage, locale, "logs") : "-"}</span>
+                </div>
+                <div className="logs-detail-item">
+                  <span className="logs-detail-label">Job ID</span>
+                  <span className="logs-detail-value logs-detail-mono">{selectedRecord.job_id ?? "-"}</span>
+                </div>
+                <div className="logs-detail-item">
+                  <span className="logs-detail-label">Page</span>
+                  <span className="logs-detail-value">{selectedRecord.page ?? "-"}</span>
+                </div>
+                <div className="logs-detail-item">
+                  <span className="logs-detail-label">Attempt</span>
+                  <span className="logs-detail-value">{selectedRecord.attempt}</span>
+                </div>
+                <div className="logs-detail-item">
+                  <span className="logs-detail-label">Duration</span>
+                  <span className="logs-detail-value">{selectedRecord.duration_ms} ms</span>
+                </div>
+                <div className="logs-detail-item">
+                  <span className="logs-detail-label">Prompt Tokens</span>
+                  <span className="logs-detail-value">{formatNumber(selectedRecord.prompt_tokens)}</span>
+                </div>
+                <div className="logs-detail-item">
+                  <span className="logs-detail-label">Completion Tokens</span>
+                  <span className="logs-detail-value">{formatNumber(selectedRecord.completion_tokens)}</span>
+                </div>
+                <div className="logs-detail-item">
+                  <span className="logs-detail-label">Total Tokens</span>
+                  <span className="logs-detail-value">{formatNumber(selectedRecord.total_tokens)}</span>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </section>
       </section>
     </Layout>

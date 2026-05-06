@@ -108,6 +108,11 @@ def payloads_from_progress_event(job_id: str, job: Job, event: Any) -> list[tupl
         payloads.append((slide_payload, {}))
 
     if event.stage == "export" and event.status == "complete":
+        complete_data: dict[str, Any] = {
+            "output_path": updates.get("output_path"),
+        }
+        if event.data and event.data.get("critic"):
+            complete_data["critic"] = event.data["critic"]
         complete_payload = {
             "type": "complete",
             "job_id": job_id,
@@ -117,9 +122,7 @@ def payloads_from_progress_event(job_id: str, job: Job, event: Any) -> list[tupl
             "progress": 1.0,
             "slides_completed": updates.get("slides_completed", job.slides_completed),
             "total_slides": updates.get("total_slides", job.total_slides),
-            "data": {
-                "output_path": updates.get("output_path"),
-            },
+            "data": complete_data,
         }
         payloads.append((complete_payload, {}))
 

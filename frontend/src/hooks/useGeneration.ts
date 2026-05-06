@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { cancelJob, fetchJobStatus, fetchPreview, fetchProjectPreview, fetchProviders, generatePresentation, isNotFoundError, refinePresentation, uploadPaper } from "../lib/api";
 import type {
+  CriticEvent,
   GenerateRequestPayload,
   GenerationOptions,
   GenerationHistoryItem,
@@ -70,6 +71,7 @@ interface RunSnapshot {
   job?: JobStatus;
   slides: PreviewSlide[];
   logs: string[];
+  criticEvents: CriticEvent[];
   selectedSlide?: PreviewSlide;
   error?: string;
   result?: PreviewResponse;
@@ -87,6 +89,7 @@ interface GenerationState {
   job?: JobStatus;
   slides: PreviewSlide[];
   logs: string[];
+  criticEvents: CriticEvent[];
   selectedSlide?: PreviewSlide;
   connectionStatus: ConnectionStatus;
   error?: string;
@@ -260,9 +263,10 @@ function buildStoredJob(historyItem: GenerationHistoryItem, result?: PreviewResp
 
 function createRunSnapshot(
   jobId: string,
-  params?: Partial<Omit<RunSnapshot, "jobId" | "slides" | "logs" | "connectionStatus">> & {
+  params?: Partial<Omit<RunSnapshot, "jobId" | "slides" | "logs" | "criticEvents" | "connectionStatus">> & {
     slides?: PreviewSlide[];
     logs?: string[];
+    criticEvents?: CriticEvent[];
     connectionStatus?: ConnectionStatus;
   },
 ): RunSnapshot {
@@ -271,6 +275,7 @@ function createRunSnapshot(
     uploadSession: params?.uploadSession,
     job: params?.job,
     slides: params?.slides ?? [],
+    criticEvents: params?.criticEvents ?? [],
     logs: params?.logs ?? [],
     selectedSlide: params?.selectedSlide,
     error: params?.error,
@@ -291,6 +296,7 @@ function applyRunToCurrent(run?: RunSnapshot) {
     job: run.job,
     slides: run.slides,
     logs: run.logs,
+    criticEvents: run.criticEvents,
     selectedSlide: run.selectedSlide,
     connectionStatus: run.connectionStatus,
     error: run.error,
@@ -320,6 +326,7 @@ function serializeRunsForStorage(runs: Record<string, RunSnapshot>) {
         uploadSession: run.uploadSession,
         job: run.job,
         logs: run.logs.slice(-PERSISTED_LOG_LIMIT),
+        criticEvents: run.criticEvents,
         error: run.error,
         currentRunConfig: run.currentRunConfig,
         connectionStatus: "disconnected" as const,
@@ -336,6 +343,7 @@ function normalizeStoredRun(jobId: string, run?: Partial<RunSnapshot>): RunSnaps
     logs: Array.isArray(run?.logs)
       ? run.logs.filter((log): log is string => typeof log === "string")
       : [],
+    criticEvents: Array.isArray(run?.criticEvents) ? run.criticEvents : [],
     selectedSlide: run?.selectedSlide,
     error: run?.error,
     result: run?.result,
@@ -359,6 +367,7 @@ export const useGeneration = create<GenerationState>()(
       providers: [],
       slides: [],
       logs: [],
+      criticEvents: [],
       connectionStatus: "disconnected",
       history: [],
       runs: {},
@@ -578,10 +587,27 @@ export const useGeneration = create<GenerationState>()(
                 });
               }
 
+              // Accumulate critic events from progress and complete events
+              let criticEvents = currentRun.criticEvents;
+              const rawCritic = event.data.critic;
+              if (Array.isArray(rawCritic) && rawCritic.length > 0) {
+                const newEvents = rawCritic as CriticEvent[];
+                if (event.type === "complete") {
+                  // Complete event carries the full list — replace
+                  criticEvents = newEvents;
+                } else {
+                  // Progress events carry per-page events — merge by dedup
+                  const existing = new Set(criticEvents.map((e) => `${e.page}-${e.attempt}`));
+                  const toAdd = newEvents.filter((e) => !existing.has(`${e.page}-${e.attempt}`));
+                  criticEvents = [...criticEvents, ...toAdd];
+                }
+              }
+
               const updatedRun: RunSnapshot = {
                 ...currentRun,
                 job: nextJob,
                 slides,
+                criticEvents,
                 selectedSlide:
                   event.type === "slide_ready"
                     ? pickLiveSelectedSlide(currentRun.slides, slides, currentRun.selectedSlide)
@@ -885,6 +911,7 @@ export const useGeneration = create<GenerationState>()(
                   job: undefined,
                   slides: [],
                   logs: [],
+                  criticEvents: [],
                   selectedSlide: undefined,
                   connectionStatus: "disconnected" as const,
                   error: undefined,
@@ -922,6 +949,7 @@ export const useGeneration = create<GenerationState>()(
             job: undefined,
             slides: [],
             logs: [],
+            criticEvents: [],
             selectedSlide: undefined,
             connectionStatus: "disconnected",
             error: undefined,
@@ -956,6 +984,7 @@ export const useGeneration = create<GenerationState>()(
           ...state,
           slides: currentRun?.slides ?? [],
           logs: currentRun?.logs ?? [],
+          criticEvents: currentRun?.criticEvents ?? [],
           selectedSlide: currentRun?.selectedSlide,
           history: Array.isArray(state.history) ? state.history : [],
           runs,

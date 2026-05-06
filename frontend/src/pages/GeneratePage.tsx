@@ -75,6 +75,7 @@ export function GeneratePage() {
     job,
     slides,
     logs,
+    criticEvents,
     selectedSlide,
     connectionStatus,
     error,
@@ -109,7 +110,13 @@ export function GeneratePage() {
   const [detailLevel, setDetailLevel] = useState("normal");
   const [timeoutSeconds, setTimeoutSeconds] = useState("");
   const [instruction, setInstruction] = useState("");
+  const GEMINI_KEY_STORAGE = "paper-ppt-agent-gemini-api-key";
   const [enableVisualCritic, setEnableVisualCritic] = useState(false);
+  const [enableIcon, setEnableIcon] = useState(true);
+  const [enableIconRag, setEnableIconRag] = useState(true);
+  const [geminiApiKey, setGeminiApiKey] = useState(() => {
+    try { return window.localStorage.getItem(GEMINI_KEY_STORAGE) ?? ""; } catch { return ""; }
+  });
   const [cancelLoading, setCancelLoading] = useState(false);
   const [secondaryPanel, setSecondaryPanel] = useState<SecondaryPanel | null>(null);
   const freshRequested = searchParams.get("fresh") === "1";
@@ -174,18 +181,18 @@ export function GeneratePage() {
     if (!provider) {
       return;
     }
-    if (targetJobId && selectedRunConfig?.provider === provider) {
+    if (targetJobId) {
       return;
     }
     const profiles = readRoutingProfiles();
     const saved = profiles[provider];
     const defaults = getProviderDefaults(providers, provider);
-    setModel("");
+    setModel(saved?.model || "");
     setBaseUrl(saved?.baseUrl || defaults.baseUrl);
     setApiKey(saved?.apiKey || "");
     setDeepSeekSettings(saved?.deepseekSettings ?? DEFAULT_DEEPSEEK_SETTINGS);
     setOpenAISettings(saved?.openaiSettings ?? DEFAULT_OPENAI_SETTINGS);
-  }, [provider, providers, selectedRunConfig?.provider, targetJobId]);
+  }, [provider, providers]);
 
   useEffect(() => {
     if (!provider) {
@@ -233,11 +240,18 @@ export function GeneratePage() {
     setDetailLevel(options.detail_level || "normal");
     setTimeoutSeconds(options.timeout_seconds ? String(options.timeout_seconds) : "");
     setEnableVisualCritic(Boolean(options.enable_visual_critic));
+    setEnableIcon(options.enable_icon !== false);
+    setEnableIconRag(options.enable_icon_rag !== false);
+    setGeminiApiKey(options.gemini_api_key ?? "");
   }, [selectedRunConfig, targetJobId]);
 
   useEffect(() => {
     setLanguageMode((current) => (current === "custom" ? current : locale === "zh" ? "zh" : "en"));
   }, [locale]);
+
+  useEffect(() => {
+    try { window.localStorage.setItem(GEMINI_KEY_STORAGE, geminiApiKey); } catch { /* noop */ }
+  }, [geminiApiKey]);
 
   useEffect(() => {
     if (job?.status === "complete" && jobId) {
@@ -286,6 +300,9 @@ export function GeneratePage() {
             timeoutSeconds={timeoutSeconds}
             instruction={instruction}
             enableVisualCritic={enableVisualCritic}
+            enableIcon={enableIcon}
+            enableIconRag={enableIconRag}
+            geminiApiKey={geminiApiKey}
             onCanvasFormatChange={setCanvasFormat}
             onLanguageModeChange={setLanguageMode}
             onCustomLanguageChange={setCustomLanguage}
@@ -294,6 +311,9 @@ export function GeneratePage() {
             onTimeoutSecondsChange={setTimeoutSeconds}
             onInstructionChange={setInstruction}
             onEnableVisualCriticChange={setEnableVisualCritic}
+            onEnableIconChange={setEnableIcon}
+            onEnableIconRagChange={setEnableIconRag}
+            onGeminiApiKeyChange={setGeminiApiKey}
           />
           <div className="studio-secondary-actions">
             <button
@@ -361,6 +381,9 @@ export function GeneratePage() {
                       ? styleOverrides
                       : undefined,
                   enable_visual_critic: enableVisualCritic,
+                  enable_icon: enableIcon,
+                  enable_icon_rag: enableIconRag,
+                  gemini_api_key: geminiApiKey || undefined,
                 },
               });
               connect(jobId);
@@ -423,7 +446,7 @@ export function GeneratePage() {
               onOverridesChange={setStyleOverrides}
             />
           ) : null}
-          {secondaryPanel === "log" ? <AgentLog logs={logs} /> : null}
+          {secondaryPanel === "log" ? <AgentLog logs={logs} criticEvents={criticEvents} jobId={jobId} /> : null}
         </div>
       </aside>
     </Layout>
