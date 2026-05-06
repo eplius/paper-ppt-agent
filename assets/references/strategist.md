@@ -101,7 +101,9 @@ Proactively provide a color scheme (HEX values) based on content characteristics
 
 **Color rules**: 60-30-10 rule (primary 60%, secondary 30%, accent 10%); text contrast ratio >= 4.5:1; no more than 4 colors per page.
 
-### f. Icon Usage Confirmation
+### f. Icon Usage Confirmation (Optional)
+
+> **Design philosophy**: Icons are optional decorative aids, not requirements. Most slides should use 0 icons. Only add an icon when it has a clear semantic role (section header, process step label, KPI highlight). Do NOT use icons as bullet-point prefixes or generic decoration.
 
 | Option | Approach | Suitable Scenarios |
 |--------|----------|-------------------|
@@ -109,6 +111,7 @@ Proactively provide a color scheme (HEX values) based on content characteristics
 | **B** | AI-generated | Custom style needed |
 | **C** | Built-in icon library | Professional scenarios (recommended) |
 | **D** | Custom icons | Has brand assets |
+| **E** | No icons | Clean academic / minimal style |
 
 Built-in library contains 6700+ icons across three libraries:
 

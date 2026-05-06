@@ -1,8 +1,12 @@
-"""Smart image cropping for SVG images with preserveAspectRatio="...slice"."""
+"""Fix SVG images that use preserveAspectRatio="slice".
+
+For images with preserveAspectRatio="slice", the image fills the element box
+and content is cropped. We convert to "meet" (the SVG default) so the full
+image is visible with letterboxing, without changing element dimensions.
+"""
 
 from __future__ import annotations
 
-import io
 import re
 from pathlib import Path
 
@@ -13,7 +17,10 @@ Y_MAP = {"YMin": 0.0, "YMid": 0.5, "YMax": 1.0}
 
 
 def crop_images_in_svg(svg_path: Path) -> int:
-    """Process images with slice aspect ratio, cropping to fit target dimensions.
+    """Adjust SVG image dimensions to preserve full image content.
+
+    For images with preserveAspectRatio="slice", converts to default "meet"
+    behavior so the full image is visible without cropping.
 
     Returns:
         Number of images processed.
@@ -32,7 +39,6 @@ def crop_images_in_svg(svg_path: Path) -> int:
 
     root = tree.getroot()
     svg_dir = svg_path.parent
-    cropped_dir = svg_dir.parent / "images" / "cropped"
     count = 0
 
     for elem in root.iter():
@@ -71,23 +77,13 @@ def crop_images_in_svg(svg_path: Path) -> int:
 
         try:
             img = Image.open(img_path)
-            cropped = _crop_to_aspect(img, target_w, target_h, align)
-            if cropped is None:
+            img_w, img_h = img.size
+            if img_w <= 0 or img_h <= 0:
                 continue
 
-            cropped_dir.mkdir(parents=True, exist_ok=True)
-            out_path = cropped_dir / img_path.name
-            fmt = "PNG" if img_path.suffix.lower() == ".png" else "JPEG"
-            if fmt == "JPEG" and cropped.mode == "RGBA":
-                cropped = cropped.convert("RGB")
-            cropped.save(out_path, format=fmt, quality=90, optimize=True)
-
-            # Update SVG element
-            rel_path = f"../images/cropped/{img_path.name}"
-            if f"{{{XLINK_NS}}}href" in elem.attrib:
-                elem.set(f"{{{XLINK_NS}}}href", rel_path)
-            else:
-                elem.set("href", rel_path)
+            # Just remove "slice" — browser default "meet" will show the
+            # full image with letterboxing. Keep original element dimensions
+            # to preserve layout.
             if "preserveAspectRatio" in elem.attrib:
                 del elem.attrib["preserveAspectRatio"]
             count += 1
@@ -116,32 +112,8 @@ def _parse_par(par: str) -> tuple[dict | None, str]:
     return {"x": X_MAP[x_match.group(1)], "y": Y_MAP[y_match.group(1)]}, mode
 
 
-def _crop_to_aspect(
-    img: Image.Image,
-    target_w: float,
-    target_h: float,
-    align: dict,
-) -> Image.Image | None:
-    """Crop image to match target aspect ratio using alignment anchor."""
-    img_w, img_h = img.size
-    target_ratio = target_w / target_h
-    img_ratio = img_w / img_h
-
-    if abs(img_ratio - target_ratio) < 0.01:
-        return None  # Already correct ratio
-
-    if img_ratio > target_ratio:
-        # Wider than target, crop sides
-        crop_h = img_h
-        crop_w = int(img_h * target_ratio)
-    else:
-        # Taller than target, crop top/bottom
-        crop_w = img_w
-        crop_h = int(img_w / target_ratio)
-
-    extra_w = img_w - crop_w
-    extra_h = img_h - crop_h
-    left = int(extra_w * align["x"])
-    top = int(extra_h * align["y"])
-
-    return img.crop((left, top, left + crop_w, top + crop_h))
+def _fmt(val: float) -> str:
+    """Format float compactly."""
+    if val == int(val):
+        return str(int(val))
+    return f"{val:.2f}".rstrip("0").rstrip(".")

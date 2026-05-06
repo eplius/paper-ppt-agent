@@ -13,6 +13,33 @@ from backend.session.manager import session_manager
 router = APIRouter()
 
 
+@router.get("/critic/{job_id}")
+async def get_critic_history(job_id: str) -> dict:
+    """Return persisted critic events from critic_history.json."""
+    import json
+
+    job = session_manager.get_job(job_id)
+    if job is None or not job.project_dir:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found.")
+
+    critic_path = Path(job.project_dir) / "critic_history.json"
+    if not critic_path.exists():
+        return {"events": []}
+
+    try:
+        data = json.loads(critic_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {"events": []}
+
+    # Merge generation and refine events
+    events = data.get("generation_events") or []
+    refine_events = data.get("refine_events") or []
+    if refine_events:
+        events = refine_events  # Prefer refine events if present
+
+    return {"events": events}
+
+
 @router.get("/critic-archive/{job_id}/{filename}")
 async def get_critic_archive_svg(job_id: str, filename: str) -> Response:
     """Serve a pre-repair archived SVG from svg_archive/repair/."""

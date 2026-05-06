@@ -164,6 +164,8 @@ async def run_pipeline(
             enable_icon=request.enable_icon,
             enable_icon_rag=request.enable_icon_rag,
             gemini_api_key=request.gemini_api_key,
+            figure_inventory=figure_inventory,
+            debug_dir=project_dir / "debug",
         )
 
         # Save design spec
@@ -492,6 +494,7 @@ async def run_refine_pipeline(
         yield ProgressEvent("research", "complete", "Manuscript revised", 0.15)
 
         yield ProgressEvent("strategy", "started", "Rebuilding design specification...", 0.15)
+        refine_figure_inventory = _load_figure_inventory(project_dir)
         design_spec = await strategist_agent.create_design_spec(
             manuscript,
             llm,
@@ -505,6 +508,7 @@ async def run_refine_pipeline(
             enable_icon=request.enable_icon,
             enable_icon_rag=request.enable_icon_rag,
             gemini_api_key=request.gemini_api_key,
+            figure_inventory=refine_figure_inventory,
         )
         design_spec_path.write_text(design_spec, encoding="utf-8")
         yield ProgressEvent("strategy", "complete", "Design spec rebuilt", 0.30)
