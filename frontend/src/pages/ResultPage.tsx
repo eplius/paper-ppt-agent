@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { Settings, Terminal, X } from "lucide-react";
 import { Layout } from "../components/layout/Layout";
 import { SlidePreview } from "../components/preview/SlidePreview";
 import { SlideViewer } from "../components/preview/SlideViewer";
@@ -66,6 +67,7 @@ export function ResultPage() {
     logs,
     criticEvents,
     connectionStatus,
+    currentRunConfig,
   } = useGeneration();
   // Direct-bind the global error-store setters so we can mirror local
   // page errors (load / refine / reexport / failed-job) into the global
@@ -88,6 +90,8 @@ export function ResultPage() {
       : undefined;
 
   // ── refine state ───────────────────────────────────────────────────────────
+  type SecondaryPanel = "log" | "config";
+  const [secondaryPanel, setSecondaryPanel] = useState<SecondaryPanel | null>(null);
   const [feedback, setFeedback] = useState("");
   const [refineLoading, setRefineLoading] = useState(false);
   const [refineError, setRefineError] = useState<string | null>(null);
@@ -375,6 +379,20 @@ export function ResultPage() {
           >
             {reexportLoading ? t("result.reexportLoading") : t("result.reexport")}
           </button>
+          <button
+            type="button"
+            className={`secondary-action ${secondaryPanel === "log" ? "secondary-action-active" : ""}`}
+            onClick={() => setSecondaryPanel((current) => (current === "log" ? null : "log"))}
+          >
+            <Terminal size={16} />
+          </button>
+          <button
+            type="button"
+            className={`secondary-action ${secondaryPanel === "config" ? "secondary-action-active" : ""}`}
+            onClick={() => setSecondaryPanel((current) => (current === "config" ? null : "config"))}
+          >
+            <Settings size={16} />
+          </button>
         </div>
       </section>
 
@@ -510,11 +528,95 @@ export function ResultPage() {
         <section className="result-refine-monitor">
           <div className="column-stack">
             <ProgressPanel job={liveJob} connectionStatus={connectionStatus} />
-            <AgentLog logs={logs} criticEvents={criticEvents} jobId={jobId ?? undefined} />
           </div>
         </section>
       ) : null}
+
+      <aside
+        className={`studio-secondary-panel ${secondaryPanel ? "studio-secondary-panel-open" : ""}`}
+        aria-hidden={!secondaryPanel}
+      >
+        <div className="studio-secondary-header">
+          <div className="panel-title-row">
+            {secondaryPanel === "config" ? (
+              <Settings size={15} className="panel-title-icon" />
+            ) : (
+              <Terminal size={15} className="panel-title-icon" />
+            )}
+            <p className="panel-title">
+              {secondaryPanel === "config" ? t("config.title") : t("log.title")}
+            </p>
+          </div>
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={() => setSecondaryPanel(null)}
+            aria-label={t("common.close")}
+          >
+            <X size={17} />
+          </button>
+        </div>
+        <div className="studio-secondary-body">
+          {secondaryPanel === "log" ? (
+            <AgentLog logs={logs} criticEvents={criticEvents} jobId={jobId ?? undefined} />
+          ) : null}
+          {secondaryPanel === "config" ? (
+            <ConfigViewer
+              provider={currentRunConfig?.provider ?? historyEntry?.provider}
+              model={currentRunConfig?.model ?? historyEntry?.model}
+              baseUrl={currentRunConfig?.baseUrl ?? historyEntry?.baseUrl}
+              options={currentRunConfig?.options ?? historyEntry?.options}
+              parentJobId={currentRunConfig?.parentJobId ?? historyEntry?.parentJobId}
+            />
+          ) : null}
+        </div>
+      </aside>
     </Layout>
+  );
+}
+
+function ConfigViewer({
+  provider,
+  model,
+  baseUrl,
+  options,
+  parentJobId,
+}: {
+  provider?: string;
+  model?: string;
+  baseUrl?: string;
+  options?: import("../lib/types").GenerationOptions;
+  parentJobId?: string | null;
+}) {
+  const { t } = useLocale();
+  const entries: { label: string; value: string }[] = [];
+  if (provider) entries.push({ label: t("config.provider"), value: provider });
+  if (model) entries.push({ label: t("config.model"), value: model });
+  if (baseUrl) entries.push({ label: "Base URL", value: baseUrl });
+  if (options?.style) entries.push({ label: t("config.style"), value: options.style });
+  if (options?.language) entries.push({ label: t("config.language"), value: options.language });
+  if (options?.detail_level) entries.push({ label: t("config.detailLevel"), value: options.detail_level });
+  if (options?.canvas_format) entries.push({ label: t("config.canvasFormat"), value: options.canvas_format });
+  if (options?.num_pages) entries.push({ label: t("config.numPages"), value: String(options.num_pages) });
+  if (options?.enable_visual_critic !== undefined) entries.push({ label: t("config.visualCritic"), value: options.enable_visual_critic ? "ON" : "OFF" });
+  if (options?.style_overrides?.palette?.length) entries.push({ label: t("config.palette"), value: options.style_overrides.palette.join(", ") });
+  if (options?.style_overrides?.font) entries.push({ label: t("config.font"), value: options.style_overrides.font });
+  if (options?.style_overrides?.density) entries.push({ label: t("config.density"), value: options.style_overrides.density });
+  if (parentJobId) entries.push({ label: t("config.parentJob"), value: parentJobId.slice(0, 8) });
+
+  if (entries.length === 0) {
+    return <p className="muted-copy">{t("config.empty")}</p>;
+  }
+
+  return (
+    <div className="config-viewer">
+      {entries.map((entry) => (
+        <div key={entry.label} className="config-item">
+          <span className="config-label">{entry.label}</span>
+          <span className="config-value">{entry.value}</span>
+        </div>
+      ))}
+    </div>
   );
 }
 
