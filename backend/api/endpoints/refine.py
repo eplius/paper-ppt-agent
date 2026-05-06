@@ -192,6 +192,7 @@ async def refine_presentation(request: RefineRequest) -> RefineResponse:
             else None
         ),
         enable_visual_critic=options.enable_visual_critic,
+        enable_icon_rag=options.enable_icon_rag,
     )
 
     task = asyncio.create_task(_run_refine_job(job.id, pipeline_request))

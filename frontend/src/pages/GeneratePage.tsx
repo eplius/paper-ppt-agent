@@ -111,6 +111,7 @@ export function GeneratePage() {
   const [timeoutSeconds, setTimeoutSeconds] = useState("");
   const [instruction, setInstruction] = useState("");
   const [enableVisualCritic, setEnableVisualCritic] = useState(false);
+  const [enableIconRag, setEnableIconRag] = useState(true);
   const [cancelLoading, setCancelLoading] = useState(false);
   const [secondaryPanel, setSecondaryPanel] = useState<SecondaryPanel | null>(null);
   const freshRequested = searchParams.get("fresh") === "1";
@@ -234,6 +235,7 @@ export function GeneratePage() {
     setDetailLevel(options.detail_level || "normal");
     setTimeoutSeconds(options.timeout_seconds ? String(options.timeout_seconds) : "");
     setEnableVisualCritic(Boolean(options.enable_visual_critic));
+    setEnableIconRag(options.enable_icon_rag !== false);
   }, [selectedRunConfig, targetJobId]);
 
   useEffect(() => {
@@ -287,6 +289,7 @@ export function GeneratePage() {
             timeoutSeconds={timeoutSeconds}
             instruction={instruction}
             enableVisualCritic={enableVisualCritic}
+            enableIconRag={enableIconRag}
             onCanvasFormatChange={setCanvasFormat}
             onLanguageModeChange={setLanguageMode}
             onCustomLanguageChange={setCustomLanguage}
@@ -295,6 +298,7 @@ export function GeneratePage() {
             onTimeoutSecondsChange={setTimeoutSeconds}
             onInstructionChange={setInstruction}
             onEnableVisualCriticChange={setEnableVisualCritic}
+            onEnableIconRagChange={setEnableIconRag}
           />
           <div className="studio-secondary-actions">
             <button
@@ -362,6 +366,7 @@ export function GeneratePage() {
                       ? styleOverrides
                       : undefined,
                   enable_visual_critic: enableVisualCritic,
+                  enable_icon_rag: enableIconRag,
                 },
               });
               connect(jobId);

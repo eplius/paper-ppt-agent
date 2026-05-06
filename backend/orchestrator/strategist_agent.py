@@ -159,6 +159,7 @@ async def create_design_spec(
     detail_level: str = "normal",
     icon_library: str = "chunk",
     style_overrides: dict | None = None,
+    enable_icon_rag: bool = True,
 ) -> str:
     """Generate a design specification from a manuscript.
 
@@ -216,7 +217,9 @@ async def create_design_spec(
         user_parts.append("\n" + deepseek_strategy_guidance(detail_level))
 
     # RAG icon retrieval: pre-select candidates from the full icon index
-    icon_candidates_block = _retrieve_icon_candidates(manuscript, icon_library)
+    icon_candidates_block = ""
+    if enable_icon_rag:
+        icon_candidates_block = _retrieve_icon_candidates(manuscript, icon_library)
     if icon_candidates_block:
         user_parts.append(icon_candidates_block)
 

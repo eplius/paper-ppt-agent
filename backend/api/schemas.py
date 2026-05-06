@@ -53,6 +53,7 @@ class GenerationOptions(BaseModel):
     timeout_seconds: int | None = Field(default=None, ge=1)
     style_overrides: StyleOverrides | None = None
     enable_visual_critic: bool = False
+    enable_icon_rag: bool = True
 
 
 class GenerateRequest(BaseModel):

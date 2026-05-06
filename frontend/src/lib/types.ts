@@ -43,6 +43,7 @@ export interface GenerationOptions {
   timeout_seconds?: number;
   style_overrides?: StyleOverridesPayload;
   enable_visual_critic?: boolean;
+  enable_icon_rag?: boolean;
 }
 
 export interface DeepSeekSettings {

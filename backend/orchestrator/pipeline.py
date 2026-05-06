@@ -52,6 +52,7 @@ class GenerationRequest:
     deepseek_settings: dict | None = None
     openai_settings: dict | None = None
     enable_visual_critic: bool = False
+    enable_icon_rag: bool = True
 
 
 async def run_pipeline(
@@ -158,6 +159,7 @@ async def run_pipeline(
             detail_level=request.detail_level,
             icon_library=request.icon_library,
             style_overrides=request.style_overrides,
+            enable_icon_rag=request.enable_icon_rag,
         )
 
         # Save design spec
@@ -400,6 +402,7 @@ class RefineRequest:
     deepseek_settings: dict | None = None
     openai_settings: dict | None = None
     enable_visual_critic: bool = False
+    enable_icon_rag: bool = True
 
 
 async def run_refine_pipeline(
@@ -493,6 +496,7 @@ async def run_refine_pipeline(
             detail_level=request.detail_level,
             icon_library=request.icon_library,
             style_overrides=request.style_overrides,
+            enable_icon_rag=request.enable_icon_rag,
         )
         design_spec_path.write_text(design_spec, encoding="utf-8")
         yield ProgressEvent("strategy", "complete", "Design spec rebuilt", 0.30)
