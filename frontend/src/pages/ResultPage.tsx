@@ -9,9 +9,9 @@ import { ProgressPanel } from "../components/progress/ProgressPanel";
 import { VersionHistory } from "../components/result/VersionHistory";
 import { useGeneration } from "../hooks/useGeneration";
 import { useLocale } from "../i18n";
-import { fetchJobStatus, fetchPreview, fetchProjectPreview, getDownloadUrl, getDownloadUrlForOutput, isNotFoundError, reexportPresentation } from "../lib/api";
+import { fetchCriticHistory, fetchJobStatus, fetchPreview, fetchProjectPreview, getDownloadUrl, getDownloadUrlForOutput, isNotFoundError, reexportPresentation } from "../lib/api";
 import { translateStageStatus } from "../lib/i18nStatus";
-import type { DeepSeekSettings, GenerateRequestPayload, GenerationHistoryItem, JobStatus, OpenAISettings, PreviewResponse, PreviewSlide } from "../lib/types";
+import type { CriticEvent, DeepSeekSettings, GenerateRequestPayload, GenerationHistoryItem, JobStatus, OpenAISettings, PreviewResponse, PreviewSlide } from "../lib/types";
 
 // Routing profile stored by GeneratePage so we can re-use model config here.
 const ROUTING_PROFILE_STORAGE_KEY = "paper-ppt-agent-routing-profiles-v1";
@@ -64,24 +64,37 @@ export function ResultPage() {
     job: liveJob,
     slides: liveSlides,
     result: liveResult,
-    logs,
-    criticEvents,
+    logs: globalLogs,
+    criticEvents: globalCriticEvents,
     connectionStatus,
-    currentRunConfig,
+    currentRunConfig: globalRunConfig,
+    runs,
   } = useGeneration();
+
+  // Read logs, criticEvents, and config from the specific run matching the
+  // URL jobId instead of the global top-level state.  The global fields
+  // always reflect the *last active* run, so opening a historical task
+  // would incorrectly show that run's data instead of the requested one.
+  const [remoteCriticEvents, setRemoteCriticEvents] = useState<CriticEvent[] | null>(null);
+  const resolvedRun = jobId ? runs[jobId] : undefined;
+  const isActiveJob = jobId === activeJobId;
+  const logs = isActiveJob ? globalLogs : (resolvedRun?.logs ?? []);
+  const localCritic = isActiveJob ? globalCriticEvents : (resolvedRun?.criticEvents ?? []);
+  const criticEvents = localCritic.length > 0 ? localCritic : (remoteCriticEvents ?? []);
+  const currentRunConfig = isActiveJob ? globalRunConfig : (resolvedRun?.currentRunConfig);
   // Direct-bind the global error-store setters so we can mirror local
   // page errors (load / refine / reexport / failed-job) into the global
   // error slot — that's what drives the floating ErrorBanner.
   const setGlobalError = (msg: string | undefined) =>
     useGeneration.setState({ error: msg });
 
-  const historyEntry = history.find((entry) => entry.jobId === jobId);
   const [result, setResult] = useState<PreviewResponse | null>(null);
   const [job, setJob] = useState<JobStatus | null>(null);
   const [slides, setSlides] = useState<PreviewSlide[]>([]);
   const [selectedSlide, setSelectedSlide] = useState<PreviewSlide | undefined>(undefined);
   const [loadError, setLoadError] = useState<string | null>(null);
 
+  const historyEntry = history.find((entry) => entry.jobId === jobId);
   const outputPath = job?.output_path ?? result?.output_path ?? historyEntry?.outputPath;
   const downloadHref = outputPath
     ? getDownloadUrlForOutput(outputPath)
@@ -212,6 +225,27 @@ export function ResultPage() {
   useEffect(() => {
     setSelectedSlide((current) => pickSelectedSlide(slides, current));
   }, [slides]);
+
+  // Fetch critic events from backend when local data is empty (e.g. after
+  // page refresh or server restart).  The backend persists critic events to
+  // critic_history.json so they survive across sessions.
+  useEffect(() => {
+    if (!jobId || localCritic.length > 0 || isActiveJob) {
+      setRemoteCriticEvents(null);
+      return;
+    }
+    let cancelled = false;
+    fetchCriticHistory(jobId)
+      .then((data) => {
+        if (!cancelled && Array.isArray(data.events) && data.events.length > 0) {
+          setRemoteCriticEvents(data.events as CriticEvent[]);
+        }
+      })
+      .catch(() => {
+        // Silently ignore — critic data is optional
+      });
+    return () => { cancelled = true; };
+  }, [jobId, localCritic.length, isActiveJob]);
 
   // Mirror any active page-level error into the global ``error`` store so
   // the floating ErrorBanner becomes visible. Priority order:

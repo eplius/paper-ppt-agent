@@ -175,6 +175,10 @@ export async function deleteVersion(jobId: string, roundName: string): Promise<v
   await request<void>(`/api/versions/${jobId}/${roundName}`, { method: "DELETE" });
 }
 
+export async function fetchCriticHistory(jobId: string): Promise<{ events: import("./types").CriticEvent[] }> {
+  return request<{ events: import("./types").CriticEvent[] }>(`/api/critic/${jobId}`);
+}
+
 export async function fetchUsageSnapshot(): Promise<UsageSnapshotResponse> {
   const [summary, daily, byModel, byStage, records] = await Promise.all([
     request<UsageSummaryResponse>("/api/usage/summary"),
