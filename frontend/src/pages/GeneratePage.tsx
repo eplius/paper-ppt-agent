@@ -110,10 +110,13 @@ export function GeneratePage() {
   const [detailLevel, setDetailLevel] = useState("normal");
   const [timeoutSeconds, setTimeoutSeconds] = useState("");
   const [instruction, setInstruction] = useState("");
+  const GEMINI_KEY_STORAGE = "paper-ppt-agent-gemini-api-key";
   const [enableVisualCritic, setEnableVisualCritic] = useState(false);
   const [enableIcon, setEnableIcon] = useState(true);
   const [enableIconRag, setEnableIconRag] = useState(true);
-  const [geminiApiKey, setGeminiApiKey] = useState("");
+  const [geminiApiKey, setGeminiApiKey] = useState(() => {
+    try { return window.localStorage.getItem(GEMINI_KEY_STORAGE) ?? ""; } catch { return ""; }
+  });
   const [cancelLoading, setCancelLoading] = useState(false);
   const [secondaryPanel, setSecondaryPanel] = useState<SecondaryPanel | null>(null);
   const freshRequested = searchParams.get("fresh") === "1";
@@ -245,6 +248,10 @@ export function GeneratePage() {
   useEffect(() => {
     setLanguageMode((current) => (current === "custom" ? current : locale === "zh" ? "zh" : "en"));
   }, [locale]);
+
+  useEffect(() => {
+    try { window.localStorage.setItem(GEMINI_KEY_STORAGE, geminiApiKey); } catch { /* noop */ }
+  }, [geminiApiKey]);
 
   useEffect(() => {
     if (job?.status === "complete" && jobId) {
