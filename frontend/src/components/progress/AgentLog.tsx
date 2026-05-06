@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { AlertTriangle, ChevronDown, ChevronRight, Eye, Terminal } from "lucide-react";
+import { useCallback, useState } from "react";
+import { AlertTriangle, ChevronDown, ChevronRight, Eye, Terminal, X } from "lucide-react";
 import { useLocale } from "../../i18n";
 import { translateLogLine } from "../../lib/i18nStatus";
 import type { CriticEvent } from "../../lib/types";
@@ -26,6 +26,21 @@ export function AgentLog({ logs, criticEvents, jobId }: AgentLogProps) {
   const [criticOpen, setCriticOpen] = useState(false);
   const [expandedPages, setExpandedPages] = useState<Set<number>>(new Set());
   const [expandedPrompts, setExpandedPrompts] = useState<Set<string>>(new Set());
+  const [archivePreview, setArchivePreview] = useState<{ url: string; label: string; content: string } | null>(null);
+
+  const openArchivePreview = useCallback(async (archivePath: string, label: string) => {
+    if (!jobId) return;
+    const url = buildArchiveUrl(archivePath, jobId);
+    if (!url) return;
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return;
+      const content = await res.text();
+      setArchivePreview({ url, label, content });
+    } catch {
+      // ignore
+    }
+  }, [jobId]);
 
   const togglePage = (page: number) => {
     setExpandedPages((prev) => {
@@ -64,6 +79,7 @@ export function AgentLog({ logs, criticEvents, jobId }: AgentLogProps) {
   const totalWarnings = safeCritic.reduce((sum, ev) => sum + ev.report.warning_count, 0);
 
   return (
+    <>
     <section className="panel">
       <div className="panel-header-row">
         <div>
@@ -151,16 +167,15 @@ export function AgentLog({ logs, criticEvents, jobId }: AgentLogProps) {
                                 ) : null}
                               </div>
                             ) : null}
-                            {ev.archive_path && jobId ? (
-                              <a
+                            {ev.archive_path ? (
+                              <button
+                                type="button"
                                 className="critic-archive-link"
-                                href={buildArchiveUrl(ev.archive_path, jobId) ?? "#"}
-                                target="_blank"
-                                rel="noopener noreferrer"
+                                onClick={() => void openArchivePreview(ev.archive_path!, `Page ${ev.page} · Attempt ${ev.attempt}`)}
                               >
                                 <Eye size={11} />
                                 View pre-repair SVG
-                              </a>
+                              </button>
                             ) : null}
                           </div>
                         ))}
@@ -174,5 +189,19 @@ export function AgentLog({ logs, criticEvents, jobId }: AgentLogProps) {
         </div>
       ) : null}
     </section>
+    {archivePreview ? (
+      <div className="svg-preview-overlay" onClick={() => setArchivePreview(null)}>
+        <div className="svg-preview-panel" onClick={(e) => e.stopPropagation()}>
+          <div className="svg-preview-header">
+            <span className="svg-preview-title">{archivePreview.label}</span>
+            <button type="button" className="icon-btn" onClick={() => setArchivePreview(null)}>
+              <X size={16} />
+            </button>
+          </div>
+          <div className="svg-preview-content" dangerouslySetInnerHTML={{ __html: archivePreview.content }} />
+        </div>
+      </div>
+    ) : null}
+    </>
   );
 }

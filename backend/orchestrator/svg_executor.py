@@ -409,8 +409,20 @@ async def generate_svg_pages(
                         used_paper_figures=used_paper_figures,
                     ),
                 )
+                # Archive pre-repair SVG on first violation detection
+                first_archive: str | None = None
+                if not report.passed:
+                    try:
+                        repair_archive_dir.mkdir(parents=True, exist_ok=True)
+                        archive_filename = f"p{page_num:02d}_attempt{attempt - 1}.svg"
+                        archive_path = repair_archive_dir / archive_filename
+                        archive_path.write_text(svg_content, encoding="utf-8")
+                        first_archive = f"svg_archive/repair/{archive_filename}"
+                    except OSError:
+                        pass
+
                 if on_critic is not None:
-                    await on_critic(page_num, attempt - 1, report, None, None)
+                    await on_critic(page_num, attempt - 1, report, None, first_archive)
 
                 # When the static critic is satisfied, run a single visual
                 # critic pass (if enabled). Visual issues become the next
