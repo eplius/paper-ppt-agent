@@ -1,16 +1,21 @@
 import type {
   CancelJobResponse,
-  FontReplaceRequest,
-  FontReplaceResponse,
   GenerateRequestPayload,
   GenerateResponse,
+  ImportStartResponse,
+  ImportStatus,
   JobStatus,
   PreviewResponse,
   ProvidersResponse,
   ReexportResponse,
   RefineRequestPayload,
   RefineResponse,
+  TemplateInfo,
+  TemplatePreview,
+  UpdateFontsRequest,
+  UpdateFontsResponse,
   UploadResponse,
+  UserTemplateItem,
   VersionDetailResponse,
   VersionsResponse,
 } from "./types";
@@ -116,6 +121,35 @@ export async function fetchProviders(): Promise<ProvidersResponse> {
   return request<ProvidersResponse>("/api/providers");
 }
 
+export async function fetchTemplates(): Promise<TemplateInfo[]> {
+  return request<TemplateInfo[]>("/api/templates");
+}
+
+export async function uploadTemplatePptx(file: File): Promise<ImportStartResponse> {
+  const formData = new FormData();
+  formData.append("file", file);
+  return request<ImportStartResponse>("/api/templates/upload", {
+    method: "POST",
+    body: formData,
+  });
+}
+
+export async function fetchImportStatus(importId: string): Promise<ImportStatus> {
+  return request<ImportStatus>(`/api/templates/import/${importId}`);
+}
+
+export async function fetchTemplatePreview(templateId: string): Promise<TemplatePreview> {
+  return request<TemplatePreview>(`/api/templates/${templateId}/preview`);
+}
+
+export async function fetchImportedTemplates(): Promise<UserTemplateItem[]> {
+  return request<UserTemplateItem[]>("/api/templates/imported");
+}
+
+export async function deleteTemplate(templateId: string): Promise<void> {
+  await request<void>(`/api/templates/${templateId}`, { method: "DELETE" });
+}
+
 export async function generatePresentation(
   payload: GenerateRequestPayload,
 ): Promise<GenerateResponse> {
@@ -181,6 +215,17 @@ export async function fetchCriticHistory(jobId: string): Promise<{ events: impor
   return request<{ events: import("./types").CriticEvent[] }>(`/api/critic/${jobId}`);
 }
 
+export async function updateSvgFonts(
+  jobId: string,
+  config: UpdateFontsRequest,
+): Promise<UpdateFontsResponse> {
+  return request<UpdateFontsResponse>(`/api/status/${jobId}/update-fonts`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(config),
+  });
+}
+
 export async function fetchUsageSnapshot(): Promise<UsageSnapshotResponse> {
   const [summary, daily, byModel, byStage, records] = await Promise.all([
     request<UsageSummaryResponse>("/api/usage/summary"),
@@ -205,15 +250,4 @@ export function getDownloadUrl(jobId: string): string {
 export function getDownloadUrlForOutput(outputPath: string): string {
   const params = new URLSearchParams({ output_path: outputPath });
   return `${API_BASE}/api/download-file?${params.toString()}`;
-}
-
-export async function applyFonts(
-  jobId: string,
-  config: FontReplaceRequest,
-): Promise<FontReplaceResponse> {
-  return request<FontReplaceResponse>(`/api/download/${jobId}/apply-fonts`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(config),
-  });
 }

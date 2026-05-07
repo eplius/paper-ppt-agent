@@ -21,6 +21,18 @@ One complete SVG file per page with proper viewBox.
 
 All banned features, PPT compatibility rules, and technical constraints are in `## SVG Technical Standards` below — follow them exactly.
 
+## Page Structure (Mandatory)
+
+Every page MUST follow this three-region structure. Content area boundary is a **hard limit** — no content element may extend beyond it.
+
+| Region | Y Start | Height | Purpose |
+| ------ | ------- | ------ | ------- |
+| Header | 20 | 60px | Page title + subtitle + accent decoration |
+| Content Area | 100 | 520px | **All content elements MUST be within x=40, y=100, width=1200, height=520** |
+| Footer | 660 | 60px | Page number + source + branding |
+
+> When the design_spec defines different content area coordinates (e.g., with templates), use those instead.
+
 ## Generation Rules
 
 1. Generate pages **sequentially**, one at a time
@@ -29,7 +41,7 @@ All banned features, PPT compatibility rules, and technical constraints are in `
 4. Include decorative elements sparingly (dividers, subtle backgrounds)
 5. Data visualizations: use SVG shapes directly (rect bars, circle pies, path lines)
 6. Images: reference with `<image href="path" x="" y="" width="" height=""/>`. The `href` MUST point to a real file path that exists (e.g. `../sources/images/fig_001_p1.png`). Do NOT invent filenames. If no real image is available, use native SVG shapes/charts/icons instead. **When Paper Figure Guidance includes `actual dimensions: WxH (ratio R)`, you MUST use that ratio for width/height.** For example, if actual dimensions are 974x269 (ratio 3.62), use width=500 height=138 (500/3.62≈138), NOT arbitrary values.
-7. Maintain consistent margins and spacing across all pages. Ensure all text and essential visual elements remain fully visible within the canvas (0–1280 horizontally, 0–720 vertically). Account for text width when positioning—longer text needs more left margin. When in doubt, leave breathing room rather than risk clipping.
+7. **Content area boundary**: All text and essential visual elements MUST remain within the content area (x=40, y=100, width=1200, height=520). Account for text width when positioning—longer text needs more left margin. When in doubt, leave breathing room rather than risk clipping.
 8. For a single visual line of copy, use exactly one `<text>` element. Do not place multiple sibling `<text>` elements at the same or nearly the same x/y position to fake inline styling.
 9. Use inline `<tspan>` only for style emphasis within one line. Do not simulate subscripts, footnotes, or formulas by adding a second `<text>` node that starts at the same x position.
 10. Never use HTML `<span>` inside SVG. Inline emphasis must be SVG `<tspan>`, otherwise browser preview can leak the span text outside the slide.
@@ -37,3 +49,31 @@ All banned features, PPT compatibility rules, and technical constraints are in `
 12. For extracted paper figures, use only hrefs explicitly allowed in the current page's Paper Figure Guidance. Do not reuse a paper figure from an earlier page. If no allowed paper figure is listed, use native SVG shapes/charts/icons instead of `<image href="../sources/images/...">`.
 13. Ensure sufficient contrast: dark text on light backgrounds, light text on dark backgrounds. Never pair light text with light fill or dark text with dark fill.
 14. For KPI, metric, or callout rows that pair a large number with a smaller label on the same visual line, use the same SVG text baseline: the number `<text>` and label `<text>` must have the same `y` value. Do not move the smaller label down to visually center it; SVG `y` is a baseline, so offsets like `label y = number y + 10` make the row look misaligned. If the label should sit below the number, place it on a clearly separate line with enough vertical gap.
+15. **Text density**: Do NOT fill the entire content area with text. Leave at least 20% whitespace. For bullet lists, limit to 6-8 items per slide. If content exceeds the area capacity, split across multiple slides.
+
+## Image-Text Layout Formulas
+
+When a page contains images, calculate layout based on the image's original aspect ratio. Never use arbitrary splits.
+
+**Layout Decision** (content area W=1200, H=520):
+
+| Aspect Ratio R = w/h | Layout | Image Position |
+| -------------------- | ------ | -------------- |
+| R > 1.2 | Top-bottom | Top, full width |
+| R ≤ 1.2 | Left-right | Left side |
+
+**Top-Bottom**: Image width=W, height=W/R. Text area height=H-image_height-20. Constraint: ≥150px.
+**Left-Right**: Image height=H, width=H×R. Text area width=W-image_width-20. Constraint: ≥280px.
+**Multi-Image Grid**: cell_w=(W-(cols-1)×20)/cols, cell_h=(H-(rows-1)×20)/rows.
+
+## Template Usage (when a Template Skeleton is provided)
+
+When a page message includes a `## Template Skeleton` block, follow these rules:
+
+1. **Start from the skeleton** — do NOT generate the SVG from scratch. Use the provided skeleton as your starting point.
+2. **Replace placeholder tokens** — tokens like `{{TITLE}}`, `{{SUBTITLE}}`, `{{PAGE_TITLE}}`, `{{SECTION_NUM}}`, `{{KEY_MESSAGE}}`, `{{COVER_QUOTE}}`, `{{DATE}}`, `{{SOURCE}}`, `{{CONTENT_AREA}}` must be replaced with actual content from the manuscript.
+3. **Preserve ALL decorative elements** — gradients, glow effects, grid lines, accent bars, decorative shapes, neural network lines, node circles, etc. must remain unchanged.
+4. **Preserve structural chrome** — headers, footers, sidebars, accent decorations, and brand identifiers from the skeleton must be kept.
+5. **Content area** — add your page-specific content (text, images, charts) inside the content area boundary only. Do not overflow beyond the content area.
+6. **Colors and fonts** — match the skeleton's color scheme and font-family exactly. Do not substitute different colors or fonts.
+7. **Content pages** — if no skeleton is provided for a content page, follow the color scheme and layout style from the content page skeleton reference provided in the initial context.

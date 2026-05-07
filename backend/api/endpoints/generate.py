@@ -143,6 +143,7 @@ async def generate_presentation(request: GenerateRequest) -> GenerateResponse:
         enable_icon=request.options.enable_icon,
         enable_icon_rag=request.options.enable_icon_rag,
         gemini_api_key=request.options.gemini_api_key,
+        template_id=request.options.template_id,
     )
 
     task = asyncio.create_task(_run_generation_job(job.id, pipeline_request))

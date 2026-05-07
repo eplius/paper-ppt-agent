@@ -26,6 +26,25 @@
 | **Margins** | [Recommended by Strategist, e.g., left/right 60px, top/bottom 50px] |
 | **Content Area** | [Calculated from canvas] |
 
+### Safe Area & Page Structure
+
+> All content elements MUST be placed within the safe area. The safe area defines the boundary that content must not exceed.
+
+| Canvas Format | Safe Area (x, y, width, height) | Margins (L/R, T/B) |
+| ------------- | ------------------------------- | ------------------- |
+| PPT 16:9 | x=40, y=40, width=1200, height=640 | 40px, 40px |
+| PPT 4:3 | x=40, y=40, width=944, height=688 | 40px, 40px |
+
+### Page Regions (16:9 reference)
+
+| Region | Y Start | Height | Purpose |
+| ------ | ------- | ------ | ------- |
+| **Header** | 20 | 60px | Page title, subtitle, accent decoration |
+| **Content Area** | 100 | 520px | Main content (text, images, charts) |
+| **Footer** | 660 | 60px | Page number, branding, source citation |
+
+> Strategist MUST define the content area boundary for each page type. Executor MUST place all content elements within the content area.
+
 ---
 
 ## III. Visual Theme
@@ -118,9 +137,11 @@
 
 ### Page Structure
 
-- **Header area**: [Height and content description]
-- **Content area**: [Height and content description]
-- **Footer area**: [Height and content description]
+> Each page MUST follow this three-region structure. The content area boundary is the hard limit for all content elements.
+
+- **Header area**: y=20, h=60px — Page title + subtitle + accent decoration
+- **Content area**: y=100, w=1200, h=520px (16:9) — All content elements MUST be within this boundary
+- **Footer area**: y=660, h=60px — Page number + source + branding
 
 ### Common Layout Modes
 
@@ -147,6 +168,68 @@
 | Single-row card height | 530-600px | [fill in] |
 | Double-row card height | 265-295px each | [fill in] |
 | Three-column card width | 360-380px each | [fill in] |
+
+### Image-Text Layout Formulas
+
+> When a page contains images, calculate layout based on the image's original aspect ratio. Never use arbitrary splits.
+
+**Layout Decision** (PPT 16:9, content area W=1200, H=520):
+
+| Image Aspect Ratio (R = width/height) | Layout Type | Image Position |
+| ------------------------------------- | ----------- | -------------- |
+| R > 2.0 (ultra-wide) | Top-bottom | Top, full width |
+| 1.2 < R ≤ 2.0 (standard/wide) | Top-bottom | Top, full width |
+| R ≤ 1.2 (square/portrait) | Left-right | Left side |
+
+**Top-Bottom Layout**:
+```
+Image width  = W (= 1200)
+Image height = W / R
+Text area    = height: H - image_height - 20(gap)
+Constraint:  text area height ≥ 150px, else switch to left-right
+```
+
+**Left-Right Layout**:
+```
+Image height = H (= 520)
+Image width  = H × R
+Text area    = width: W - image_width - 20(gap)
+Constraint:  text area width ≥ 280px
+```
+
+**Multi-Image Grid**:
+```
+cell_width  = (W - (columns - 1) × 20) / columns
+cell_height = (H - (rows - 1) × 20) / rows
+```
+
+### Text Volume Guidelines
+
+> Control text density to prevent overflow and maintain readability.
+
+**Character Capacity Estimation** (for a text area of width W, height H):
+```
+Single-line height = fontSize × max(lineHeight, 1.3)
+CJK character width  ≈ fontSize
+Latin character width ≈ fontSize × 0.55
+Max lines       = floor(H / single-line-height)
+Max chars/line  = floor(W / avg-char-width)
+```
+
+**Content Area Capacity Table** (16:9, content area 1200×520):
+
+| Font Size | Max Lines | Max CJK Chars | Max Latin Chars |
+| --------- | --------- | ------------- | --------------- |
+| 14px | 29 | ~20,500 | ~37,000 |
+| 16px | 25 | ~15,000 | ~27,000 |
+| 18px | 22 | ~11,700 | ~21,300 |
+| 24px | 16 | ~6,400 | ~11,600 |
+
+**Anti-Overflow Rules**:
+1. Do NOT fill the entire content area with text. Leave at least 20% whitespace.
+2. For bullet lists, limit to 6-8 items per slide.
+3. For multi-column layouts, each column has independent character limits.
+4. If content exceeds capacity, split across multiple slides.
 
 ---
 

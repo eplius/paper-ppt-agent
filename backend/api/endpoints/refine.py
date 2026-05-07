@@ -195,6 +195,7 @@ async def refine_presentation(request: RefineRequest) -> RefineResponse:
         enable_icon=options.enable_icon,
         enable_icon_rag=options.enable_icon_rag,
         gemini_api_key=options.gemini_api_key,
+        template_id=options.template_id,
     )
 
     task = asyncio.create_task(_run_refine_job(job.id, pipeline_request))

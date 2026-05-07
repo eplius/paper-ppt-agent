@@ -136,6 +136,77 @@ def _figure_guidance_block(used: list[dict], rejected: list[str] | None = None) 
         "a different paper-figure href, reuse one from another slide, or invent "
         "a paper-figure path. This does not restrict native SVG visuals."
     )
+
+
+# -- Character budget & image layout helpers ----------------------------------
+
+# Content area defaults for PPT 16:9 (may be overridden by design_spec)
+_DEFAULT_CONTENT_AREA = {"x": 40, "y": 100, "width": 1200, "height": 520}
+
+
+def _estimate_capacity(width: int, height: int, font_size: int = 16) -> int:
+    """Estimate max characters that fit in a content area."""
+    line_height = int(font_size * 1.3)
+    max_lines = max(1, height // line_height)
+    # Average char width: blend of CJK (1.0) and Latin (0.55), assume 0.75
+    avg_char_w = font_size * 0.75
+    chars_per_line = max(1, int(width / avg_char_w))
+    return max_lines * chars_per_line
+
+
+def _char_budget_block(manuscript_page: str) -> str:
+    """Return a density warning if the page content seems too large."""
+    est_chars = len(manuscript_page.strip())
+    capacity = _estimate_capacity(
+        _DEFAULT_CONTENT_AREA["width"],
+        _DEFAULT_CONTENT_AREA["height"],
+    )
+    ratio = est_chars / capacity if capacity else 0
+    if ratio > 0.8:
+        return (
+            f"**Content density warning**: ~{est_chars} chars estimated, "
+            f"capacity ~{capacity}. Consider splitting across multiple slides "
+            "or condensing the text."
+        )
+    return (
+        f"**Content density**: ~{est_chars} chars / ~{capacity} capacity "
+        f"({ratio:.0%})."
+    )
+
+
+def _figure_layout_guidance(used_figures: list[dict]) -> str:
+    """For each paper figure, recommend layout based on its aspect ratio."""
+    if not used_figures:
+        return ""
+    ca_w = _DEFAULT_CONTENT_AREA["width"]
+    ca_h = _DEFAULT_CONTENT_AREA["height"]
+    lines = ["## Image Layout Recommendations"]
+    for fig in used_figures:
+        path = fig.get("path") or ""
+        try:
+            img_path = Path(path)
+            if img_path.exists():
+                with Image.open(img_path) as img:
+                    w, h = img.size
+                    r = w / h
+                    if r > 1.2:
+                        layout = "top-bottom"
+                        img_w, img_h = ca_w, int(ca_w / r)
+                        txt_area = f"{ca_w}x{ca_h - img_h - 20}"
+                    else:
+                        layout = "left-right"
+                        img_h, img_w = ca_h, int(ca_h * r)
+                        txt_area = f"{ca_w - img_w - 20}x{ca_h}"
+                    lines.append(
+                        f"- {Path(path).stem}: ratio={r:.2f}, "
+                        f"recommended={layout}, "
+                        f"image={img_w}x{img_h}, text_area={txt_area}"
+                    )
+                    continue
+        except Exception:
+            pass
+        lines.append(f"- {Path(path).stem}: unable to read dimensions")
+    return "\n".join(lines)
     for item in rejected:
         lines.append(
             f"Rejected paper figure token: {item}. Do not use its href; summarize "
@@ -278,6 +349,8 @@ async def generate_svg_pages(
     figure_inventory: list[dict] | None = None,
     enable_visual_critic: bool = False,
     visual_critic_config: VisualCriticConfig | None = None,
+    template_context: str | None = None,
+    template_skeletons: dict[str, str] | None = None,
 ) -> AsyncIterator[tuple[int, str]]:
     """Generate SVG code for each slide page sequentially."""
     system_prompt = PROMPT_PATH.read_text(encoding="utf-8")
@@ -300,6 +373,8 @@ async def generate_svg_pages(
         extra_sections.append(extra_instruction)
     if is_deepseek_provider(llm, model):
         extra_sections.append(deepseek_executor_guidance(detail_level))
+    if template_context:
+        extra_sections.append(template_context)
     extra_block = "\n\n" + "\n\n".join(extra_sections) if extra_sections else ""
     conversation: list[LLMMessage] = [
         LLMMessage.system(system_prompt),
@@ -339,6 +414,9 @@ async def generate_svg_pages(
     # (system + design-spec user + ack assistant = 3 preamble messages).
     _preamble_len = len(conversation)
 
+    # Detect chapter page numbers from the design spec content outline
+    _chapter_pages = _detect_chapter_pages(design_spec, len(pages))
+
     for i, page_content in enumerate(pages):
         page_num = i + 1
         if target_pages is not None and page_num not in target_pages:
@@ -360,6 +438,22 @@ async def generate_svg_pages(
             figure_inventory,
         )
         figure_guidance = _figure_guidance_block(used_figures, rejected_figures)
+        char_budget = _char_budget_block(rewritten_content)
+        img_layout = _figure_layout_guidance(used_figures)
+
+        # Build skeleton injection block if template skeletons are available
+        skeleton_block = ""
+        if template_skeletons:
+            page_type = _classify_page_type(page_num, len(pages), _chapter_pages)
+            skeleton_svg = template_skeletons.get(page_type)
+            if skeleton_svg:
+                skeleton_block = (
+                    f"\n\n## Template Skeleton ({page_type} page)\n"
+                    f"Use this SVG as your starting point. Replace {{{{PLACEHOLDER}}}} tokens "
+                    f"with actual content below. Preserve ALL decorative elements, gradients, "
+                    f"and structural chrome. Do NOT rewrite from scratch.\n\n"
+                    f"```svg\n{skeleton_svg}\n```"
+                )
 
         conversation.append(
             LLMMessage.user(
@@ -369,10 +463,13 @@ async def generate_svg_pages(
                 f"- Style preset: {style}\n"
                 f"- Language: {language}\n"
                 f"- Detail level: {detail_level}\n"
-                f"- Keep all visible text in the requested language.\n\n"
+                f"- Keep all visible text in the requested language.\n"
+                f"- {char_budget}\n\n"
                 f"{figure_guidance}\n\n"
+                f"{img_layout}\n\n"
                 f"Generate the complete SVG code for this page. "
                 f"Output ONLY the SVG code, wrapped in ```svg code block."
+                f"{skeleton_block}"
             )
         )
 
@@ -534,6 +631,39 @@ async def generate_svg_pages(
                 f"Failed to generate parseable SVG for page {page_num}/{len(pages)} "
                 f"({page_name}) after {MAX_SVG_EXTRACTION_ATTEMPTS} attempts"
             )
+
+
+def _detect_chapter_pages(design_spec: str, total_pages: int) -> set[int]:
+    """Detect chapter/section-divider page numbers from the design spec.
+
+    Looks for patterns like "Page 2:" or "Slide 3:" in the content outline
+    section that indicate section dividers.
+    """
+    chapter_pages: set[int] = set()
+    # Look for content outline section with page assignments
+    # Patterns like "- Page 2: ..." or "## Slide 3: ..."
+    for m in re.finditer(
+        r"(?:page|slide)\s+(\d+)\s*[:\-]",
+        design_spec,
+        re.IGNORECASE,
+    ):
+        pnum = int(m.group(1))
+        if 2 <= pnum < total_pages:  # Exclude cover (1) and ending (last)
+            chapter_pages.add(pnum)
+    return chapter_pages
+
+
+def _classify_page_type(
+    page_num: int, total_pages: int, chapter_pages: set[int]
+) -> str:
+    """Classify a page as cover/chapter/content/ending/toc."""
+    if page_num == 1:
+        return "cover"
+    if page_num == total_pages:
+        return "ending"
+    if page_num in chapter_pages:
+        return "chapter"
+    return "content"
 
 
 def _make_page_name(num: int, content: str) -> str:

@@ -52,7 +52,7 @@ def _extract_icon_queries(manuscript: str) -> list[str]:
     return queries[:ICON_QUERY_COUNT]
 
 
-def _retrieve_icon_candidates(
+async def _retrieve_icon_candidates(
     manuscript: str,
     lib: str,
     gemini_api_key: str | None = None,
@@ -60,7 +60,8 @@ def _retrieve_icon_candidates(
     """Retrieve icon candidates for the chosen library using RAG.
 
     Returns a formatted string listing candidate icons for injection
-    into the strategist prompt.
+    into the strategist prompt.  Wrapped in asyncio.to_thread() so that
+    the blocking Gemini embedding call does not prevent task cancellation.
     """
     import os
 
@@ -78,12 +79,20 @@ def _retrieve_icon_candidates(
     if not queries:
         return ""
 
-    # Collect candidates from all queries
+    # Collect candidates from all queries — run blocking search in a thread
+    # so that asyncio cancellation can interrupt it.
     seen_paths: set[str] = set()
     candidates: list[dict] = []
 
     for query in queries:
-        results = index.search(query, lib=lib, k=5)
+        try:
+            results = await asyncio.wait_for(
+                asyncio.to_thread(index.search, query, lib=lib, k=5),
+                timeout=30,
+            )
+        except (asyncio.TimeoutError, asyncio.CancelledError):
+            logger.warning("Icon search timed out or was cancelled for query: %s", query)
+            break
         for r in results:
             if r["path"] not in seen_paths:
                 seen_paths.add(r["path"])
@@ -174,11 +183,12 @@ async def create_design_spec(
     detail_level: str = "normal",
     icon_library: str = "chunk",
     style_overrides: dict | None = None,
-    enable_icon: bool = True,
-    enable_icon_rag: bool = True,
+    enable_icon: bool = False,
+    enable_icon_rag: bool = False,
     gemini_api_key: str | None = None,
     figure_inventory: list[dict] | None = None,
     debug_dir: Path | None = None,
+    template_context: str | None = None,
 ) -> str:
     """Generate a design specification from a manuscript.
 
@@ -221,15 +231,33 @@ async def create_design_spec(
         f"- Page Count: {page_count}",
         f"- Audience: Academic/Research community",
         f"- Style: {style_info['name']}",
-        f"- Primary Color: {style_info['primary']}",
-        f"- Accent Color: {style_info['accent']}",
-        f"- Typography: Sans-serif (Inter/Arial for body, bold for headings)",
-        "\n## Hard Constraints",
-        "- Respect the selected design style. Do not silently fall back to a default academic theme when another style is selected.",
-        f"- The visible slide language must be `{language}`.",
-        f"- {_language_constraint(language)}",
-        "- Detail level `normal` should keep pages concise, `high` should allow moderately denser explanatory content, and `very_high` should accommodate richer explanations and fuller evidence coverage without becoming unreadable.",
     ]
+
+    if template_context:
+        # When a template is active, the template's color scheme and
+        # typography take precedence.  Only inject the style name for
+        # content-strategy guidance (academic vs consulting vs tech),
+        # but skip primary/accent color so they don't conflict.
+        user_parts.extend([
+            "- Color scheme & Typography: defined by the selected template (see Template Reference below)",
+            "\n## Hard Constraints",
+            "- The template's color scheme, typography, and page structure MUST take precedence over any style defaults.",
+            f"- The visible slide language must be `{language}`.",
+            f"- {_language_constraint(language)}",
+            "- Detail level `normal` should keep pages concise, `high` should allow moderately denser explanatory content, and `very_high` should accommodate richer explanations and fuller evidence coverage without becoming unreadable.",
+        ])
+        user_parts.append(f"\n{template_context}")
+    else:
+        user_parts.extend([
+            f"- Primary Color: {style_info['primary']}",
+            f"- Accent Color: {style_info['accent']}",
+            f"- Typography: Sans-serif (Inter/Arial for body, bold for headings)",
+            "\n## Hard Constraints",
+            "- Respect the selected design style. Do not silently fall back to a default academic theme when another style is selected.",
+            f"- The visible slide language must be `{language}`.",
+            f"- {_language_constraint(language)}",
+            "- Detail level `normal` should keep pages concise, `high` should allow moderately denser explanatory content, and `very_high` should accommodate richer explanations and fuller evidence coverage without becoming unreadable.",
+        ])
 
     if is_deepseek_provider(llm, model):
         user_parts.append("\n" + deepseek_strategy_guidance(detail_level))
@@ -243,7 +271,7 @@ async def create_design_spec(
             "Use plain SVG shapes (circles, rects, paths) for all visual elements instead."
         )
     elif enable_icon_rag:
-        icon_candidates_block = _retrieve_icon_candidates(manuscript, icon_library, gemini_api_key)
+        icon_candidates_block = await _retrieve_icon_candidates(manuscript, icon_library, gemini_api_key)
     if icon_candidates_block:
         user_parts.append(icon_candidates_block)
 
@@ -278,6 +306,10 @@ async def create_design_spec(
         override_lines = ["\n## Style Overrides (must override defaults)"]
         palette = style_overrides.get("palette") if isinstance(style_overrides, dict) else None
         font = style_overrides.get("font") if isinstance(style_overrides, dict) else None
+        font_heading = style_overrides.get("font_heading") if isinstance(style_overrides, dict) else None
+        font_body = style_overrides.get("font_body") if isinstance(style_overrides, dict) else None
+        cjk_heading = style_overrides.get("cjk_heading") if isinstance(style_overrides, dict) else None
+        cjk_body = style_overrides.get("cjk_body") if isinstance(style_overrides, dict) else None
         density = style_overrides.get("density") if isinstance(style_overrides, dict) else None
         if palette:
             try:
@@ -289,7 +321,24 @@ async def create_design_spec(
                     f"- Palette: {colors} — use these as the primary / accent / background colors "
                     f"in every slide's color system. Do NOT fall back to the default style colors."
                 )
-        if font:
+        if font_heading or font_body or cjk_heading or cjk_body:
+            if font_heading:
+                override_lines.append(
+                    f"- Western heading font-family: `{font_heading}` — use this for Western (Latin) heading/title text."
+                )
+            if font_body:
+                override_lines.append(
+                    f"- Western body font-family: `{font_body}` — use this for Western (Latin) body/paragraph text."
+                )
+            if cjk_heading:
+                override_lines.append(
+                    f"- CJK heading font-family: `{cjk_heading}` — use this for CJK (Chinese/Japanese/Korean) heading/title text."
+                )
+            if cjk_body:
+                override_lines.append(
+                    f"- CJK body font-family: `{cjk_body}` — use this for CJK (Chinese/Japanese/Korean) body/paragraph text."
+                )
+        elif font:
             override_lines.append(
                 f"- Font-family: `{font}` — use this family for every text element throughout."
             )
