@@ -23,7 +23,6 @@ from .utils import (
     parse_svg_length,
     parse_svg_ratio,
     parse_transform,
-    select_ppt_font_family,
     px_to_emu,
     xml_escape,
 )
@@ -383,6 +382,8 @@ def _get_opacity(elem: Any, ctx: ConvertContext) -> float:
 
 def _make_run(text: str, elem: Any, ctx: ConvertContext, font_size: float) -> dict:
     """Create a text run dict from element attributes."""
+    from backend.generator.svg_to_pptx.font_mapping import parse_font_family
+
     fill = ctx.get_attr(elem, "fill", "#000000")
     color = _resolve_text_color(fill, ctx)
     weight = ctx.get_attr(elem, "font-weight", "normal")
@@ -390,6 +391,7 @@ def _make_run(text: str, elem: Any, ctx: ConvertContext, font_size: float) -> di
     family = ctx.get_attr(elem, "font-family", "Arial")
     decoration = ctx.get_attr(elem, "text-decoration", "")
 
+    fonts = parse_font_family(family)
     return {
         "text": text,
         "font_size": font_size,
@@ -397,12 +399,9 @@ def _make_run(text: str, elem: Any, ctx: ConvertContext, font_size: float) -> di
         "bold": weight in ("bold", "700", "800", "900"),
         "italic": style == "italic",
         "underline": "underline" in decoration,
-        "font_family": _select_ppt_font_family(text, family),
+        "font_family": fonts["latin"],
+        "ea_font_family": fonts["ea"],
     }
-
-
-def _select_ppt_font_family(text: str, font_stack: str) -> str:
-    return select_ppt_font_family(text, font_stack)
 
 
 def _resolve_text_color(fill: str, ctx: ConvertContext) -> str:
@@ -439,16 +438,18 @@ def _build_run_xml(run: dict) -> str:
     bold = ' b="1"' if run["bold"] else ""
     italic = ' i="1"' if run["italic"] else ""
     underline = ' u="sng"' if run["underline"] else ""
-    font = xml_escape(run["font_family"])
+    latin = xml_escape(run["font_family"])
+    ea = xml_escape(run.get("ea_font_family", run["font_family"]))
 
     fill = f'<a:solidFill><a:srgbClr val="{run["color"]}"/></a:solidFill>'
 
     return (
         f'<a:r>'
-        f'<a:rPr lang="en-US" sz="{size}"{bold}{italic}{underline} dirty="0">'
+        f'<a:rPr lang="zh-CN" sz="{size}"{bold}{italic}{underline} dirty="0">'
         f'{fill}'
-        f'<a:latin typeface="{font}"/>'
-        f'<a:ea typeface="{font}"/>'
+        f'<a:latin typeface="{latin}"/>'
+        f'<a:ea typeface="{ea}"/>'
+        f'<a:cs typeface="{latin}"/>'
         f'</a:rPr>'
         f'<a:t>{xml_escape(run["text"])}</a:t>'
         f'</a:r>'

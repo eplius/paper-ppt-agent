@@ -5,7 +5,8 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from backend.generator.svg_to_pptx.utils import select_ppt_font_family
+from backend.generator.svg_to_pptx.font_mapping import parse_font_family
+from backend.generator.svg_to_pptx.utils import is_cjk_char
 
 SVG_NS = "http://www.w3.org/2000/svg"
 
@@ -36,7 +37,10 @@ def _normalize_element(elem: ET.Element, inherited_font: str | None) -> int:
 
     if _is_text_like(elem):
         text = _text_content(elem)
-        chosen = select_ppt_font_family(text, font_stack or "Arial")
+        has_cjk = any(is_cjk_char(ch) for ch in text)
+        fonts = parse_font_family(font_stack or "Arial")
+        # Use EA font for CJK text (correct preview), Latin font otherwise
+        chosen = fonts["ea"] if has_cjk else fonts["latin"]
         if elem.get("font-family") != chosen:
             elem.set("font-family", chosen)
             changed += 1

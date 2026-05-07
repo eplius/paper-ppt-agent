@@ -350,6 +350,7 @@ async def generate_svg_pages(
     enable_visual_critic: bool = False,
     visual_critic_config: VisualCriticConfig | None = None,
     template_context: str | None = None,
+    template_skeletons: dict[str, str] | None = None,
 ) -> AsyncIterator[tuple[int, str]]:
     """Generate SVG code for each slide page sequentially."""
     system_prompt = PROMPT_PATH.read_text(encoding="utf-8")
@@ -413,6 +414,9 @@ async def generate_svg_pages(
     # (system + design-spec user + ack assistant = 3 preamble messages).
     _preamble_len = len(conversation)
 
+    # Detect chapter page numbers from the design spec content outline
+    _chapter_pages = _detect_chapter_pages(design_spec, len(pages))
+
     for i, page_content in enumerate(pages):
         page_num = i + 1
         if target_pages is not None and page_num not in target_pages:
@@ -437,6 +441,20 @@ async def generate_svg_pages(
         char_budget = _char_budget_block(rewritten_content)
         img_layout = _figure_layout_guidance(used_figures)
 
+        # Build skeleton injection block if template skeletons are available
+        skeleton_block = ""
+        if template_skeletons:
+            page_type = _classify_page_type(page_num, len(pages), _chapter_pages)
+            skeleton_svg = template_skeletons.get(page_type)
+            if skeleton_svg:
+                skeleton_block = (
+                    f"\n\n## Template Skeleton ({page_type} page)\n"
+                    f"Use this SVG as your starting point. Replace {{{{PLACEHOLDER}}}} tokens "
+                    f"with actual content below. Preserve ALL decorative elements, gradients, "
+                    f"and structural chrome. Do NOT rewrite from scratch.\n\n"
+                    f"```svg\n{skeleton_svg}\n```"
+                )
+
         conversation.append(
             LLMMessage.user(
                 f"## Page {page_num}/{len(pages)}: {page_name}\n\n"
@@ -451,6 +469,7 @@ async def generate_svg_pages(
                 f"{img_layout}\n\n"
                 f"Generate the complete SVG code for this page. "
                 f"Output ONLY the SVG code, wrapped in ```svg code block."
+                f"{skeleton_block}"
             )
         )
 
@@ -612,6 +631,39 @@ async def generate_svg_pages(
                 f"Failed to generate parseable SVG for page {page_num}/{len(pages)} "
                 f"({page_name}) after {MAX_SVG_EXTRACTION_ATTEMPTS} attempts"
             )
+
+
+def _detect_chapter_pages(design_spec: str, total_pages: int) -> set[int]:
+    """Detect chapter/section-divider page numbers from the design spec.
+
+    Looks for patterns like "Page 2:" or "Slide 3:" in the content outline
+    section that indicate section dividers.
+    """
+    chapter_pages: set[int] = set()
+    # Look for content outline section with page assignments
+    # Patterns like "- Page 2: ..." or "## Slide 3: ..."
+    for m in re.finditer(
+        r"(?:page|slide)\s+(\d+)\s*[:\-]",
+        design_spec,
+        re.IGNORECASE,
+    ):
+        pnum = int(m.group(1))
+        if 2 <= pnum < total_pages:  # Exclude cover (1) and ending (last)
+            chapter_pages.add(pnum)
+    return chapter_pages
+
+
+def _classify_page_type(
+    page_num: int, total_pages: int, chapter_pages: set[int]
+) -> str:
+    """Classify a page as cover/chapter/content/ending/toc."""
+    if page_num == 1:
+        return "cover"
+    if page_num == total_pages:
+        return "ending"
+    if page_num in chapter_pages:
+        return "chapter"
+    return "content"
 
 
 def _make_page_name(num: int, content: str) -> str:

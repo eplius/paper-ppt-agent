@@ -223,6 +223,26 @@ def build_template_context_for_executor(template: TemplateContent) -> str:
         f"width={ca['width']}, height={ca['height']}\n"
         "- All content elements MUST be placed within the content area.\n"
         "- Text must not extend beyond content area boundaries.\n"
-        "- Cover/chapter/ending pages: inherit the template SVG skeleton "
-        "(header, footer, decorations) and replace placeholder text only.\n"
+        "- When a Template Skeleton is provided for a page, you MUST use it as "
+        "the starting point. Replace {{PLACEHOLDER}} tokens with actual content. "
+        "Preserve ALL decorative elements (gradients, glow effects, grid lines, "
+        "accent bars, decorative shapes). Do NOT rewrite the skeleton from scratch.\n"
+        "- For content pages without a skeleton, follow the skeleton's color scheme "
+        "and layout style from the content page skeleton reference.\n"
     )
+
+
+def build_template_skeletons(template: TemplateContent) -> dict[str, str]:
+    """Extract page-type SVG skeletons for per-page injection."""
+    skeletons: dict[str, str] = {}
+    if template.cover_svg:
+        skeletons["cover"] = template.cover_svg
+    if template.chapter_svg:
+        skeletons["chapter"] = template.chapter_svg
+    if template.content_svg:
+        skeletons["content"] = template.content_svg
+    if template.ending_svg:
+        skeletons["ending"] = template.ending_svg
+    if template.toc_svg:
+        skeletons["toc"] = template.toc_svg
+    return skeletons

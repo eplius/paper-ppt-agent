@@ -53,8 +53,8 @@ class GenerationOptions(BaseModel):
     timeout_seconds: int | None = Field(default=None, ge=1)
     style_overrides: StyleOverrides | None = None
     enable_visual_critic: bool = False
-    enable_icon: bool = True
-    enable_icon_rag: bool = True
+    enable_icon: bool = False
+    enable_icon_rag: bool = False
     gemini_api_key: str | None = None
     template_id: str | None = None  # Template ID from assets/templates/layouts/
 

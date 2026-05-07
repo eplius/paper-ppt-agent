@@ -52,8 +52,8 @@ class GenerationRequest:
     deepseek_settings: dict | None = None
     openai_settings: dict | None = None
     enable_visual_critic: bool = False
-    enable_icon: bool = True
-    enable_icon_rag: bool = True
+    enable_icon: bool = False
+    enable_icon_rag: bool = False
     gemini_api_key: str | None = None
     template_id: str | None = None  # Template ID from assets/templates/layouts/
 
@@ -156,16 +156,19 @@ async def run_pipeline(
         # Load template context if specified
         template_context_strat = ""
         template_context_exec = ""
+        template_skeletons: dict[str, str] | None = None
         if request.template_id:
             from backend.generator.template_manager import (
                 build_template_context_for_executor,
                 build_template_context_for_strategist,
+                build_template_skeletons,
                 load_template,
             )
             tmpl = load_template(request.template_id)
             if tmpl:
                 template_context_strat = build_template_context_for_strategist(tmpl)
                 template_context_exec = build_template_context_for_executor(tmpl)
+                template_skeletons = build_template_skeletons(tmpl)
                 yield ProgressEvent(
                     "strategy", "progress",
                     f"Template '{request.template_id}' loaded: {tmpl.info.label}",
@@ -244,6 +247,7 @@ async def run_pipeline(
             figure_inventory=figure_inventory,
             enable_visual_critic=request.enable_visual_critic,
             template_context=template_context_exec or None,
+            template_skeletons=template_skeletons,
         ):
             generated += 1
             progress = 0.40 + (generated / total_pages) * 0.35
@@ -430,8 +434,8 @@ class RefineRequest:
     deepseek_settings: dict | None = None
     openai_settings: dict | None = None
     enable_visual_critic: bool = False
-    enable_icon: bool = True
-    enable_icon_rag: bool = True
+    enable_icon: bool = False
+    enable_icon_rag: bool = False
     gemini_api_key: str | None = None
     template_id: str | None = None
 
@@ -578,11 +582,17 @@ async def run_refine_pipeline(
 
     # Load template context for refine if specified
     refine_template_ctx = ""
+    refine_template_skeletons: dict[str, str] | None = None
     if request.template_id:
-        from backend.generator.template_manager import build_template_context_for_executor, load_template
+        from backend.generator.template_manager import (
+            build_template_context_for_executor,
+            build_template_skeletons,
+            load_template,
+        )
         _tmpl = load_template(request.template_id)
         if _tmpl:
             refine_template_ctx = build_template_context_for_executor(_tmpl)
+            refine_template_skeletons = build_template_skeletons(_tmpl)
 
     async for page_num, svg_content in svg_executor.generate_svg_pages(
         design_spec,
@@ -599,6 +609,7 @@ async def run_refine_pipeline(
         figure_inventory=refine_inventory,
         enable_visual_critic=request.enable_visual_critic,
         template_context=refine_template_ctx or None,
+        template_skeletons=refine_template_skeletons,
     ):
         generated += 1
         progress = generation_start + (generated / max(pages_to_generate, 1)) * generation_span

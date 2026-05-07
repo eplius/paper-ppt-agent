@@ -1,6 +1,7 @@
 import { Eye, HelpCircle, Key, Layers, Puzzle, Settings2 } from "lucide-react";
 import { useLocale } from "../../i18n";
 import type { TemplateInfo } from "../../lib/types";
+import { FontSelector } from "./FontSelector";
 
 interface OptionsPanelProps {
   canvasFormat: string;
@@ -16,6 +17,8 @@ interface OptionsPanelProps {
   geminiApiKey: string;
   templateId: string;
   templates: TemplateInfo[];
+  density: string;
+  customFont: string;
   onCanvasFormatChange: (value: string) => void;
   onLanguageModeChange: (value: "zh" | "en" | "custom") => void;
   onCustomLanguageChange: (value: string) => void;
@@ -29,6 +32,8 @@ interface OptionsPanelProps {
   onGeminiApiKeyChange: (value: string) => void;
   onTemplateChange: (value: string) => void;
   onManageTemplates: () => void;
+  onDensityChange: (value: string) => void;
+  onCustomFontChange: (value: string) => void;
 }
 
 export function OptionsPanel(props: OptionsPanelProps) {
@@ -245,6 +250,19 @@ export function OptionsPanel(props: OptionsPanelProps) {
           </div>
         ) : null}
       </div>
+
+      <label className="form-field">
+        <span>{t("options.density")}</span>
+        <select value={props.density} onChange={(event) => props.onDensityChange(event.target.value)}>
+          <option value="compact">{t("options.densityCompact")}</option>
+          <option value="normal">{t("options.densityNormal")}</option>
+          <option value="spacious">{t("options.densitySpacious")}</option>
+        </select>
+      </label>
+      <label className="form-field">
+        <span>{t("options.customFont")}</span>
+        <FontSelector value={props.customFont} onChange={props.onCustomFontChange} />
+      </label>
 
       <label className="form-field">
         <span>{t("options.instruction")}</span>

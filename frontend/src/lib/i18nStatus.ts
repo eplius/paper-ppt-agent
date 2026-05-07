@@ -21,6 +21,7 @@ const STAGE_LABELS: Record<string, { zh: string; en: string }> = {
   complete: { zh: "已完成", en: "Complete" },
   error: { zh: "失败", en: "Error" },
   cancelled: { zh: "已取消", en: "Cancelled" },
+  cancelling: { zh: "取消中", en: "Cancelling" },
   unknown: { zh: "未知", en: "Unknown" },
   "(unknown)": { zh: "未知", en: "Unknown" },
 };
@@ -39,6 +40,7 @@ const HISTORY_LABELS: Record<string, { zh: string; en: string }> = {
   complete: { zh: "已完成", en: "Complete" },
   error: { zh: "失败", en: "Error" },
   cancelled: { zh: "已取消", en: "Cancelled" },
+  cancelling: { zh: "取消中", en: "Cancelling" },
 };
 
 export function normalizeProgressStage(status: string | undefined | null): string {
@@ -85,6 +87,7 @@ export function translateJobMessage(message: string | undefined, locale: Locale)
     "Refined PowerPoint generated!": "优化后的 PowerPoint 已生成",
     "Job cancelled": "任务已取消",
     "Refine job cancelled": "优化任务已取消",
+    "Cancelling generation...": "正在取消生成...",
     "Revising manuscript structure from feedback...": "正在根据反馈重写讲稿结构...",
     "Manuscript revised": "讲稿已更新",
     "Rebuilding design specification...": "正在重建设计规范...",

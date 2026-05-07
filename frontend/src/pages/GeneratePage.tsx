@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Palette, Terminal, X } from "lucide-react";
+import { Terminal, X } from "lucide-react";
 import { Layout } from "../components/layout/Layout";
 import { ModelSelector } from "../components/config/ModelSelector";
 import { OptionsPanel } from "../components/config/OptionsPanel";
-import { StylePicker, type StyleOverrides } from "../components/config/StylePicker";
 import { SlidePreview } from "../components/preview/SlidePreview";
 import { SlideViewer } from "../components/preview/SlideViewer";
 import { AgentLog } from "../components/progress/AgentLog";
@@ -19,7 +18,7 @@ import { TemplateManager } from "../components/template/TemplateManager";
 
 const ROUTING_PROFILE_STORAGE_KEY = "paper-ppt-agent-routing-profiles-v1";
 type LanguageMode = "zh" | "en" | "custom";
-type SecondaryPanel = "style" | "log";
+type SecondaryPanel = "log";
 const DEFAULT_DEEPSEEK_SETTINGS: DeepSeekSettings = {
   thinking_enabled: true,
   reasoning_effort: "max",
@@ -103,8 +102,8 @@ export function GeneratePage() {
   const [openAISettings, setOpenAISettings] = useState<OpenAISettings>(
     DEFAULT_OPENAI_SETTINGS,
   );
-  const [style, setStyle] = useState("academic");
-  const [styleOverrides, setStyleOverrides] = useState<StyleOverrides>({});
+  const [density, setDensity] = useState("normal");
+  const [customFont, setCustomFont] = useState("");
   const [canvasFormat, setCanvasFormat] = useState("ppt169");
   const [languageMode, setLanguageMode] = useState<LanguageMode>(locale === "zh" ? "zh" : "en");
   const [customLanguage, setCustomLanguage] = useState("");
@@ -114,8 +113,8 @@ export function GeneratePage() {
   const [instruction, setInstruction] = useState("");
   const GEMINI_KEY_STORAGE = "paper-ppt-agent-gemini-api-key";
   const [enableVisualCritic, setEnableVisualCritic] = useState(false);
-  const [enableIcon, setEnableIcon] = useState(true);
-  const [enableIconRag, setEnableIconRag] = useState(true);
+  const [enableIcon, setEnableIcon] = useState(false);
+  const [enableIconRag, setEnableIconRag] = useState(false);
   const [geminiApiKey, setGeminiApiKey] = useState(() => {
     try { return window.localStorage.getItem(GEMINI_KEY_STORAGE) ?? ""; } catch { return ""; }
   });
@@ -238,8 +237,8 @@ export function GeneratePage() {
     setDeepSeekSettings(savedProfile?.deepseekSettings ?? DEFAULT_DEEPSEEK_SETTINGS);
     setOpenAISettings(savedProfile?.openaiSettings ?? DEFAULT_OPENAI_SETTINGS);
     setCanvasFormat(options.canvas_format || "ppt169");
-    setStyle(options.style || "academic");
-    setStyleOverrides(options.style_overrides ?? {});
+    setDensity(options.style_overrides?.density ?? "normal");
+    setCustomFont(options.style_overrides?.font ?? "");
     if (options.language === "zh" || options.language === "en") {
       setLanguageMode(options.language);
       setCustomLanguage("");
@@ -330,16 +329,12 @@ export function GeneratePage() {
             onGeminiApiKeyChange={setGeminiApiKey}
             onTemplateChange={setTemplateId}
             onManageTemplates={() => setTemplateManagerOpen(true)}
+            density={density}
+            customFont={customFont}
+            onDensityChange={setDensity}
+            onCustomFontChange={setCustomFont}
           />
           <div className="studio-secondary-actions">
-            <button
-              type="button"
-              className={`secondary-action ${secondaryPanel === "style" ? "secondary-action-active" : ""}`}
-              onClick={() => setSecondaryPanel((current) => (current === "style" ? null : "style"))}
-            >
-              <Palette size={16} />
-              <span>{t("style.title")}</span>
-            </button>
             <button
               type="button"
               className={`secondary-action ${secondaryPanel === "log" ? "secondary-action-active" : ""}`}
@@ -387,14 +382,14 @@ export function GeneratePage() {
                 },
                 options: {
                   canvas_format: canvasFormat,
-                  style,
+                  style: "academic",
                   language: resolveRequestedLanguage(languageMode, customLanguage),
                   num_pages: numPages ? Number(numPages) : undefined,
                   detail_level: detailLevel,
                   timeout_seconds: parseOptionalPositiveInt(timeoutSeconds),
                   style_overrides:
-                    styleOverrides.palette || styleOverrides.font || styleOverrides.density
-                      ? styleOverrides
+                    customFont || density !== "normal"
+                      ? { font: customFont || undefined, density: density as "compact" | "normal" | "spacious" }
                       : undefined,
                   enable_visual_critic: enableVisualCritic,
                   enable_icon: enableIcon,
@@ -436,14 +431,8 @@ export function GeneratePage() {
       >
         <div className="studio-secondary-header">
           <div className="panel-title-row">
-            {secondaryPanel === "style" ? (
-              <Palette size={15} className="panel-title-icon" />
-            ) : (
-              <Terminal size={15} className="panel-title-icon" />
-            )}
-            <p className="panel-title">
-              {secondaryPanel === "style" ? t("style.title") : t("log.title")}
-            </p>
+            <Terminal size={15} className="panel-title-icon" />
+            <p className="panel-title">{t("log.title")}</p>
           </div>
           <button
             type="button"
@@ -455,14 +444,6 @@ export function GeneratePage() {
           </button>
         </div>
         <div className="studio-secondary-body">
-          {secondaryPanel === "style" ? (
-            <StylePicker
-              value={style}
-              onChange={setStyle}
-              overrides={styleOverrides}
-              onOverridesChange={setStyleOverrides}
-            />
-          ) : null}
           {secondaryPanel === "log" ? <AgentLog logs={logs} criticEvents={criticEvents} jobId={jobId} /> : null}
         </div>
       </aside>

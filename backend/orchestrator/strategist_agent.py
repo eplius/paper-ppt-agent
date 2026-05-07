@@ -52,7 +52,7 @@ def _extract_icon_queries(manuscript: str) -> list[str]:
     return queries[:ICON_QUERY_COUNT]
 
 
-def _retrieve_icon_candidates(
+async def _retrieve_icon_candidates(
     manuscript: str,
     lib: str,
     gemini_api_key: str | None = None,
@@ -60,7 +60,8 @@ def _retrieve_icon_candidates(
     """Retrieve icon candidates for the chosen library using RAG.
 
     Returns a formatted string listing candidate icons for injection
-    into the strategist prompt.
+    into the strategist prompt.  Wrapped in asyncio.to_thread() so that
+    the blocking Gemini embedding call does not prevent task cancellation.
     """
     import os
 
@@ -78,12 +79,20 @@ def _retrieve_icon_candidates(
     if not queries:
         return ""
 
-    # Collect candidates from all queries
+    # Collect candidates from all queries — run blocking search in a thread
+    # so that asyncio cancellation can interrupt it.
     seen_paths: set[str] = set()
     candidates: list[dict] = []
 
     for query in queries:
-        results = index.search(query, lib=lib, k=5)
+        try:
+            results = await asyncio.wait_for(
+                asyncio.to_thread(index.search, query, lib=lib, k=5),
+                timeout=30,
+            )
+        except (asyncio.TimeoutError, asyncio.CancelledError):
+            logger.warning("Icon search timed out or was cancelled for query: %s", query)
+            break
         for r in results:
             if r["path"] not in seen_paths:
                 seen_paths.add(r["path"])
@@ -174,8 +183,8 @@ async def create_design_spec(
     detail_level: str = "normal",
     icon_library: str = "chunk",
     style_overrides: dict | None = None,
-    enable_icon: bool = True,
-    enable_icon_rag: bool = True,
+    enable_icon: bool = False,
+    enable_icon_rag: bool = False,
     gemini_api_key: str | None = None,
     figure_inventory: list[dict] | None = None,
     debug_dir: Path | None = None,
@@ -262,7 +271,7 @@ async def create_design_spec(
             "Use plain SVG shapes (circles, rects, paths) for all visual elements instead."
         )
     elif enable_icon_rag:
-        icon_candidates_block = _retrieve_icon_candidates(manuscript, icon_library, gemini_api_key)
+        icon_candidates_block = await _retrieve_icon_candidates(manuscript, icon_library, gemini_api_key)
     if icon_candidates_block:
         user_parts.append(icon_candidates_block)
 

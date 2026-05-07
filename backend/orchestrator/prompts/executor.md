@@ -65,3 +65,15 @@ When a page contains images, calculate layout based on the image's original aspe
 **Top-Bottom**: Image width=W, height=W/R. Text area height=H-image_height-20. Constraint: ≥150px.
 **Left-Right**: Image height=H, width=H×R. Text area width=W-image_width-20. Constraint: ≥280px.
 **Multi-Image Grid**: cell_w=(W-(cols-1)×20)/cols, cell_h=(H-(rows-1)×20)/rows.
+
+## Template Usage (when a Template Skeleton is provided)
+
+When a page message includes a `## Template Skeleton` block, follow these rules:
+
+1. **Start from the skeleton** — do NOT generate the SVG from scratch. Use the provided skeleton as your starting point.
+2. **Replace placeholder tokens** — tokens like `{{TITLE}}`, `{{SUBTITLE}}`, `{{PAGE_TITLE}}`, `{{SECTION_NUM}}`, `{{KEY_MESSAGE}}`, `{{COVER_QUOTE}}`, `{{DATE}}`, `{{SOURCE}}`, `{{CONTENT_AREA}}` must be replaced with actual content from the manuscript.
+3. **Preserve ALL decorative elements** — gradients, glow effects, grid lines, accent bars, decorative shapes, neural network lines, node circles, etc. must remain unchanged.
+4. **Preserve structural chrome** — headers, footers, sidebars, accent decorations, and brand identifiers from the skeleton must be kept.
+5. **Content area** — add your page-specific content (text, images, charts) inside the content area boundary only. Do not overflow beyond the content area.
+6. **Colors and fonts** — match the skeleton's color scheme and font-family exactly. Do not substitute different colors or fonts.
+7. **Content pages** — if no skeleton is provided for a content page, follow the color scheme and layout style from the content page skeleton reference provided in the initial context.
