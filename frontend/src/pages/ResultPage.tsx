@@ -9,9 +9,56 @@ import { ProgressPanel } from "../components/progress/ProgressPanel";
 import { VersionHistory } from "../components/result/VersionHistory";
 import { useGeneration } from "../hooks/useGeneration";
 import { useLocale } from "../i18n";
-import { fetchCriticHistory, fetchJobStatus, fetchPreview, fetchProjectPreview, getDownloadUrl, getDownloadUrlForOutput, isNotFoundError, reexportPresentation } from "../lib/api";
+import { applyFonts, fetchCriticHistory, fetchJobStatus, fetchPreview, fetchProjectPreview, getDownloadUrl, getDownloadUrlForOutput, isNotFoundError, reexportPresentation } from "../lib/api";
 import { translateStageStatus } from "../lib/i18nStatus";
 import type { CriticEvent, DeepSeekSettings, GenerateRequestPayload, GenerationHistoryItem, JobStatus, OpenAISettings, PreviewResponse, PreviewSlide } from "../lib/types";
+
+// ── Font presets ─────────────────────────────────────────────────────────────
+interface FontOption { label: string; value: string }
+const WH_FONT_OPTIONS: FontOption[] = [
+  { label: "-- keep default --", value: "" },
+  { label: "Arial Black", value: "Arial Black" },
+  { label: "Impact", value: "Impact" },
+  { label: "Helvetica", value: "Helvetica" },
+  { label: "Trebuchet MS", value: "Trebuchet MS" },
+  { label: "Calibri Bold", value: "Calibri" },
+  { label: "Verdana", value: "Verdana" },
+  { label: "Georgia", value: "Georgia" },
+  { label: "Cambria", value: "Cambria" },
+  { label: "Times New Roman Bold", value: "Times New Roman" },
+];
+const WB_FONT_OPTIONS: FontOption[] = [
+  { label: "-- keep default --", value: "" },
+  { label: "Arial", value: "Arial" },
+  { label: "Calibri", value: "Calibri" },
+  { label: "Helvetica", value: "Helvetica" },
+  { label: "Times New Roman", value: "Times New Roman" },
+  { label: "Verdana", value: "Verdana" },
+  { label: "Georgia", value: "Georgia" },
+  { label: "Cambria", value: "Cambria" },
+  { label: "Palatino", value: "Palatino" },
+];
+const CH_FONT_OPTIONS: FontOption[] = [
+  { label: "-- 保持默认 --", value: "" },
+  { label: "微软雅黑", value: "Microsoft YaHei" },
+  { label: "黑体", value: "SimHei" },
+  { label: "思源黑体", value: "Source Han Sans CN" },
+  { label: "华文中宋", value: "STZhongsong" },
+  { label: "华文新魏", value: "STXinwei" },
+  { label: "楷体", value: "KaiTi" },
+  { label: "方正小标宋", value: "FZXiaoBiaoSong-B05S" },
+];
+const CB_FONT_OPTIONS: FontOption[] = [
+  { label: "-- 保持默认 --", value: "" },
+  { label: "宋体", value: "SimSun" },
+  { label: "仿宋", value: "FangSong" },
+  { label: "楷体", value: "KaiTi" },
+  { label: "微软雅黑", value: "Microsoft YaHei" },
+  { label: "等线", value: "DengXian" },
+  { label: "华文宋体", value: "STSong" },
+  { label: "华文楷体", value: "STKaiti" },
+  { label: "思源宋体", value: "Source Han Serif CN" },
+];
 
 // Routing profile stored by GeneratePage so we can re-use model config here.
 const ROUTING_PROFILE_STORAGE_KEY = "paper-ppt-agent-routing-profiles-v1";
@@ -112,6 +159,15 @@ export function ResultPage() {
   const [allowStructureChanges, setAllowStructureChanges] = useState(false);
   const [reexportLoading, setReexportLoading] = useState(false);
   const [reexportError, setReexportError] = useState<string | null>(null);
+
+  // ── font customization state ─────────────────────────────────────────────
+  const [fontsLoading, setFontsLoading] = useState(false);
+  const [fontsError, setFontsError] = useState<string | null>(null);
+  const [fontsResult, setFontsResult] = useState<{ slides: number; runs: number; svg: number } | null>(null);
+  const [westernHeading, setWesternHeading] = useState("");
+  const [westernBody, setWesternBody] = useState("");
+  const [cjkHeading, setCjkHeading] = useState("");
+  const [cjkBody, setCjkBody] = useState("");
 
   useEffect(() => {
     if (!jobId || jobId !== activeJobId) {
@@ -381,6 +437,54 @@ export function ResultPage() {
     }
   };
 
+  const handleApplyFonts = async () => {
+    if (!jobId) return;
+    const config: Record<string, string> = {};
+    if (westernHeading) config.western_heading = westernHeading;
+    if (westernBody) config.western_body = westernBody;
+    if (cjkHeading) config.cjk_heading = cjkHeading;
+    if (cjkBody) config.cjk_body = cjkBody;
+    if (Object.keys(config).length === 0) return;
+
+    setFontsLoading(true);
+    setFontsError(null);
+    setFontsResult(null);
+    try {
+      const response = await applyFonts(jobId, config);
+      setJob((current) =>
+        current
+          ? { ...current, output_path: response.output_path }
+          : current,
+      );
+      setResult((current) =>
+        current
+          ? { ...current, output_path: response.output_path }
+          : current,
+      );
+      setFontsResult({
+        slides: response.slides_modified,
+        runs: response.fonts_replaced,
+        svg: response.svg_fonts_replaced,
+      });
+
+      // Re-fetch preview to show updated fonts in real time
+      const projectDir = result?.project_dir ?? historyEntry?.projectDir;
+      if (projectDir) {
+        try {
+          const updatedPreview = await fetchProjectPreview(projectDir);
+          setSlides(updatedPreview.slides);
+          setResult((current) => (current ? { ...current, slides: updatedPreview.slides } : current));
+        } catch {
+          // Preview refresh is best-effort; download still works
+        }
+      }
+    } catch (err) {
+      setFontsError(err instanceof Error ? err.message : "Font replacement failed.");
+    } finally {
+      setFontsLoading(false);
+    }
+  };
+
   return (
     <Layout contentClassName="result-page">
       <section className="result-hero">
@@ -452,10 +556,62 @@ export function ResultPage() {
         </div>
       </section>
 
-      <section className="result-grid">
-        <div className="column-stack">
-          <SlidePreview slides={slides} selectedSlide={selectedSlide} onSelect={setSelectedSlide} />
+      {/* ── Font customization — above the preview grid ── */}
+      <section className="font-customizer-panel">
+        <div className="font-customizer-header">
+          <h3>{t("result.fontsTitle")}</h3>
+          <p className="muted-copy" style={{ fontSize: "0.78rem", marginBottom: 0 }}>{t("result.fontsBody")}</p>
         </div>
+
+        <div className="font-customizer-fields">
+          {[
+            { key: "westernHeading", label: t("result.fontsWesternHeading"), setter: setWesternHeading, value: westernHeading, options: WH_FONT_OPTIONS },
+            { key: "westernBody", label: t("result.fontsWesternBody"), setter: setWesternBody, value: westernBody, options: WB_FONT_OPTIONS },
+            { key: "cjkHeading", label: t("result.fontsCJKHeading"), setter: setCjkHeading, value: cjkHeading, options: CH_FONT_OPTIONS },
+            { key: "cjkBody", label: t("result.fontsCJKBody"), setter: setCjkBody, value: cjkBody, options: CB_FONT_OPTIONS },
+          ].map((item) => (
+            <div key={item.key} className="field-label">
+              <label style={{ fontWeight: 500, fontSize: "0.8rem" }}>{item.label}</label>
+              <select
+                className="font-select"
+                value={item.value}
+                onChange={(e) => item.setter(e.target.value)}
+                disabled={fontsLoading}
+                style={{
+                  fontFamily: item.value || undefined,
+                }}
+              >
+                {item.options.map((opt) => (
+                  <option key={opt.value} value={opt.value} style={{ fontFamily: opt.value || undefined }}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ))}
+        </div>
+
+        <div className="font-customizer-actions">
+          {fontsError && <p className="error-text">{fontsError}</p>}
+          {fontsResult && (
+            <p className="muted-copy" style={{ color: "var(--success, #16a34a)", fontSize: "0.8rem" }}>
+              ✓ PPTX: {fontsResult.slides} slides / {fontsResult.runs} runs · SVG: {fontsResult.svg} runs
+            </p>
+          )}
+
+          <button
+            type="button"
+            className="primary-button"
+            onClick={handleApplyFonts}
+            disabled={fontsLoading || !jobId || (!westernHeading && !westernBody && !cjkHeading && !cjkBody)}
+          >
+            {fontsLoading ? t("result.fontsLoading") : t("result.fontsApply")}
+          </button>
+        </div>
+      </section>
+
+      <section className="result-preview-layout">
+        <SlidePreview slides={slides} selectedSlide={selectedSlide} onSelect={setSelectedSlide} />
         <SlideViewer slide={selectedSlide} />
       </section>
 

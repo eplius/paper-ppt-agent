@@ -137,3 +137,26 @@ class ProviderListItem(BaseModel):
 
 class ProvidersResponse(BaseModel):
     providers: list[ProviderListItem]
+
+
+# ── Font replacement ─────────────────────────────────────────────────────────
+
+
+class FontReplaceRequest(BaseModel):
+    """Font replacement configuration for the exported PPTX.
+
+    Each field is optional. Set only the fonts you want to replace.
+    None = leave that category unchanged.
+    """
+    western_heading: str | None = None
+    western_body: str | None = None
+    cjk_heading: str | None = None
+    cjk_body: str | None = None
+
+
+class FontReplaceResponse(BaseModel):
+    output_path: str
+    slides_modified: int
+    fonts_replaced: int
+    svg_fonts_replaced: int = 0
+    status: str = "complete"

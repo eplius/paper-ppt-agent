@@ -1,5 +1,7 @@
 import type {
   CancelJobResponse,
+  FontReplaceRequest,
+  FontReplaceResponse,
   GenerateRequestPayload,
   GenerateResponse,
   JobStatus,
@@ -203,4 +205,15 @@ export function getDownloadUrl(jobId: string): string {
 export function getDownloadUrlForOutput(outputPath: string): string {
   const params = new URLSearchParams({ output_path: outputPath });
   return `${API_BASE}/api/download-file?${params.toString()}`;
+}
+
+export async function applyFonts(
+  jobId: string,
+  config: FontReplaceRequest,
+): Promise<FontReplaceResponse> {
+  return request<FontReplaceResponse>(`/api/download/${jobId}/apply-fonts`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(config),
+  });
 }
