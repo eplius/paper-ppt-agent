@@ -306,6 +306,10 @@ async def create_design_spec(
         override_lines = ["\n## Style Overrides (must override defaults)"]
         palette = style_overrides.get("palette") if isinstance(style_overrides, dict) else None
         font = style_overrides.get("font") if isinstance(style_overrides, dict) else None
+        font_heading = style_overrides.get("font_heading") if isinstance(style_overrides, dict) else None
+        font_body = style_overrides.get("font_body") if isinstance(style_overrides, dict) else None
+        cjk_heading = style_overrides.get("cjk_heading") if isinstance(style_overrides, dict) else None
+        cjk_body = style_overrides.get("cjk_body") if isinstance(style_overrides, dict) else None
         density = style_overrides.get("density") if isinstance(style_overrides, dict) else None
         if palette:
             try:
@@ -317,7 +321,24 @@ async def create_design_spec(
                     f"- Palette: {colors} — use these as the primary / accent / background colors "
                     f"in every slide's color system. Do NOT fall back to the default style colors."
                 )
-        if font:
+        if font_heading or font_body or cjk_heading or cjk_body:
+            if font_heading:
+                override_lines.append(
+                    f"- Western heading font-family: `{font_heading}` — use this for Western (Latin) heading/title text."
+                )
+            if font_body:
+                override_lines.append(
+                    f"- Western body font-family: `{font_body}` — use this for Western (Latin) body/paragraph text."
+                )
+            if cjk_heading:
+                override_lines.append(
+                    f"- CJK heading font-family: `{cjk_heading}` — use this for CJK (Chinese/Japanese/Korean) heading/title text."
+                )
+            if cjk_body:
+                override_lines.append(
+                    f"- CJK body font-family: `{cjk_body}` — use this for CJK (Chinese/Japanese/Korean) body/paragraph text."
+                )
+        elif font:
             override_lines.append(
                 f"- Font-family: `{font}` — use this family for every text element throughout."
             )

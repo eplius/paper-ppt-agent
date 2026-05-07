@@ -31,6 +31,10 @@ export interface ProvidersResponse {
 export interface StyleOverridesPayload {
   palette?: string[];
   font?: string;
+  font_heading?: string;
+  font_body?: string;
+  cjk_heading?: string;
+  cjk_body?: string;
   density?: "compact" | "normal" | "spacious";
 }
 
@@ -278,4 +282,18 @@ export interface VersionDetailResponse {
   name: string;
   path: string;
   slides: VersionSlide[];
+}
+
+// ── Font update ────────────────────────────────────────────────────────────
+
+export interface UpdateFontsRequest {
+  western_heading?: string | null;
+  western_body?: string | null;
+  cjk_heading?: string | null;
+  cjk_body?: string | null;
+}
+
+export interface UpdateFontsResponse {
+  svg_fonts_replaced: number;
+  status: string;
 }

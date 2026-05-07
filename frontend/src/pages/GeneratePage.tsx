@@ -104,6 +104,10 @@ export function GeneratePage() {
   );
   const [density, setDensity] = useState("normal");
   const [customFont, setCustomFont] = useState("");
+  const [headingFont, setHeadingFont] = useState("");
+  const [bodyFont, setBodyFont] = useState("");
+  const [cjkHeadingFont, setCjkHeadingFont] = useState("");
+  const [cjkBodyFont, setCjkBodyFont] = useState("");
   const [canvasFormat, setCanvasFormat] = useState("ppt169");
   const [languageMode, setLanguageMode] = useState<LanguageMode>(locale === "zh" ? "zh" : "en");
   const [customLanguage, setCustomLanguage] = useState("");
@@ -239,6 +243,11 @@ export function GeneratePage() {
     setCanvasFormat(options.canvas_format || "ppt169");
     setDensity(options.style_overrides?.density ?? "normal");
     setCustomFont(options.style_overrides?.font ?? "");
+    setHeadingFont(options.style_overrides?.font_heading ?? "");
+    setBodyFont(options.style_overrides?.font_body ?? "");
+    setCjkHeadingFont(options.style_overrides?.cjk_heading ?? "");
+    setCjkBodyFont(options.style_overrides?.cjk_body ?? "");
+    setCustomFont(options.style_overrides?.font ?? "");
     if (options.language === "zh" || options.language === "en") {
       setLanguageMode(options.language);
       setCustomLanguage("");
@@ -331,8 +340,16 @@ export function GeneratePage() {
             onManageTemplates={() => setTemplateManagerOpen(true)}
             density={density}
             customFont={customFont}
+            headingFont={headingFont}
+            bodyFont={bodyFont}
+            cjkHeadingFont={cjkHeadingFont}
+            cjkBodyFont={cjkBodyFont}
             onDensityChange={setDensity}
             onCustomFontChange={setCustomFont}
+            onHeadingFontChange={setHeadingFont}
+            onBodyFontChange={setBodyFont}
+            onCjkHeadingFontChange={setCjkHeadingFont}
+            onCjkBodyFontChange={setCjkBodyFont}
           />
           <div className="studio-secondary-actions">
             <button
@@ -388,8 +405,15 @@ export function GeneratePage() {
                   detail_level: detailLevel,
                   timeout_seconds: parseOptionalPositiveInt(timeoutSeconds),
                   style_overrides:
-                    customFont || density !== "normal"
-                      ? { font: customFont || undefined, density: density as "compact" | "normal" | "spacious" }
+                    customFont || headingFont || bodyFont || cjkHeadingFont || cjkBodyFont || density !== "normal"
+                      ? {
+                          font: customFont || undefined,
+                          font_heading: headingFont || undefined,
+                          font_body: bodyFont || undefined,
+                          cjk_heading: cjkHeadingFont || undefined,
+                          cjk_body: cjkBodyFont || undefined,
+                          density: density as "compact" | "normal" | "spacious",
+                        }
                       : undefined,
                   enable_visual_critic: enableVisualCritic,
                   enable_icon: enableIcon,

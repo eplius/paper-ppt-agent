@@ -12,6 +12,8 @@ import type {
   RefineResponse,
   TemplateInfo,
   TemplatePreview,
+  UpdateFontsRequest,
+  UpdateFontsResponse,
   UploadResponse,
   UserTemplateItem,
   VersionDetailResponse,
@@ -211,6 +213,17 @@ export async function deleteVersion(jobId: string, roundName: string): Promise<v
 
 export async function fetchCriticHistory(jobId: string): Promise<{ events: import("./types").CriticEvent[] }> {
   return request<{ events: import("./types").CriticEvent[] }>(`/api/critic/${jobId}`);
+}
+
+export async function updateSvgFonts(
+  jobId: string,
+  config: UpdateFontsRequest,
+): Promise<UpdateFontsResponse> {
+  return request<UpdateFontsResponse>(`/api/status/${jobId}/update-fonts`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(config),
+  });
 }
 
 export async function fetchUsageSnapshot(): Promise<UsageSnapshotResponse> {

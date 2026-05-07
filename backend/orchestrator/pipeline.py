@@ -722,6 +722,10 @@ def _build_style_overrides_block(overrides: dict | None) -> str:
     parts: list[str] = []
     palette = overrides.get("palette") if isinstance(overrides, dict) else None
     font = overrides.get("font") if isinstance(overrides, dict) else None
+    font_heading = overrides.get("font_heading") if isinstance(overrides, dict) else None
+    font_body = overrides.get("font_body") if isinstance(overrides, dict) else None
+    cjk_heading = overrides.get("cjk_heading") if isinstance(overrides, dict) else None
+    cjk_body = overrides.get("cjk_body") if isinstance(overrides, dict) else None
     density = overrides.get("density") if isinstance(overrides, dict) else None
     if palette:
         try:
@@ -733,7 +737,24 @@ def _build_style_overrides_block(overrides: dict | None) -> str:
                 f"- **Palette override** (use these exact colors for primary / accent / background "
                 f"where appropriate): {colors}"
             )
-    if font:
+    if font_heading or font_body or cjk_heading or cjk_body:
+        if font_heading:
+            parts.append(
+                f"- **Western heading font**: Use `{font_heading}` for Western heading `<text>` elements."
+            )
+        if font_body:
+            parts.append(
+                f"- **Western body font**: Use `{font_body}` for Western body `<text>` elements."
+            )
+        if cjk_heading:
+            parts.append(
+                f"- **CJK heading font**: Use `{cjk_heading}` for CJK heading `<text>` elements."
+            )
+        if cjk_body:
+            parts.append(
+                f"- **CJK body font**: Use `{cjk_body}` for CJK body `<text>` elements."
+            )
+    elif font:
         parts.append(
             f"- **Font override**: Use this font-family for every SVG `<text>` element: `{font}`."
         )

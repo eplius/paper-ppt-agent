@@ -10,6 +10,7 @@ import { VersionHistory } from "../components/result/VersionHistory";
 import { useGeneration } from "../hooks/useGeneration";
 import { useLocale } from "../i18n";
 import { fetchCriticHistory, fetchJobStatus, fetchPreview, fetchProjectPreview, getDownloadUrl, getDownloadUrlForOutput, isNotFoundError, reexportPresentation } from "../lib/api";
+import { FontCustomizer } from "../components/result/FontCustomizer";
 import { translateStageStatus } from "../lib/i18nStatus";
 import type { CriticEvent, DeepSeekSettings, GenerateRequestPayload, GenerationHistoryItem, JobStatus, OpenAISettings, PreviewResponse, PreviewSlide } from "../lib/types";
 
@@ -461,6 +462,24 @@ export function ResultPage() {
 
       {loadError ? <p className="error-text">{loadError}</p> : null}
       {reexportError ? <p className="error-text">{reexportError}</p> : null}
+
+      {/* ── Font customization ── */}
+      {jobId && (job?.status === "complete" || job?.status === "error") ? (
+        <FontCustomizer
+          jobId={jobId}
+          onReexported={(outputPath) => {
+            setJob((current) => current ? { ...current, output_path: outputPath, status: "complete", error: null } : current);
+            setResult((current) => current ? { ...current, output_path: outputPath } : current);
+            // Refresh preview
+            const projectDir = result?.project_dir ?? historyEntry?.projectDir;
+            if (projectDir) {
+              fetchProjectPreview(projectDir)
+                .then((p) => { setSlides(p.slides); setResult((c) => c ? { ...c, slides: p.slides } : c); })
+                .catch(() => undefined);
+            }
+          }}
+        />
+      ) : null}
 
       {/* ── Feedback / Refine section ── */}
       <section className="result-refine">

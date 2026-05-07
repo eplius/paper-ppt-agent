@@ -19,6 +19,10 @@ interface OptionsPanelProps {
   templates: TemplateInfo[];
   density: string;
   customFont: string;
+  headingFont: string;
+  bodyFont: string;
+  cjkHeadingFont: string;
+  cjkBodyFont: string;
   onCanvasFormatChange: (value: string) => void;
   onLanguageModeChange: (value: "zh" | "en" | "custom") => void;
   onCustomLanguageChange: (value: string) => void;
@@ -34,6 +38,10 @@ interface OptionsPanelProps {
   onManageTemplates: () => void;
   onDensityChange: (value: string) => void;
   onCustomFontChange: (value: string) => void;
+  onHeadingFontChange: (value: string) => void;
+  onBodyFontChange: (value: string) => void;
+  onCjkHeadingFontChange: (value: string) => void;
+  onCjkBodyFontChange: (value: string) => void;
 }
 
 export function OptionsPanel(props: OptionsPanelProps) {
@@ -261,7 +269,18 @@ export function OptionsPanel(props: OptionsPanelProps) {
       </label>
       <label className="form-field">
         <span>{t("options.customFont")}</span>
-        <FontSelector value={props.customFont} onChange={props.onCustomFontChange} />
+        <FontSelector
+          value={props.customFont}
+          onChange={props.onCustomFontChange}
+          headingFont={props.headingFont}
+          onHeadingFontChange={props.onHeadingFontChange}
+          bodyFont={props.bodyFont}
+          onBodyFontChange={props.onBodyFontChange}
+          cjkHeadingFont={props.cjkHeadingFont}
+          onCjkHeadingFontChange={props.onCjkHeadingFontChange}
+          cjkBodyFont={props.cjkBodyFont}
+          onCjkBodyFontChange={props.onCjkBodyFontChange}
+        />
       </label>
 
       <label className="form-field">

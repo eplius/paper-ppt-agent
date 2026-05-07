@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from .endpoints import download, generate, preview, providers, refine, session, status, template_import, templates, upload, usage, versions
+from .endpoints import download, font_update, generate, preview, providers, refine, session, status, template_import, templates, upload, usage, versions
 
 api_router = APIRouter(prefix="/api")
 api_router.include_router(upload.router, tags=["upload"])
@@ -10,6 +10,7 @@ api_router.include_router(generate.router, tags=["generate"])
 api_router.include_router(refine.router, tags=["refine"])
 api_router.include_router(status.router, tags=["status"])
 api_router.include_router(download.router, tags=["download"])
+api_router.include_router(font_update.router, tags=["fonts"])
 api_router.include_router(preview.router, tags=["preview"])
 api_router.include_router(providers.router, tags=["providers"])
 api_router.include_router(session.router, tags=["session"])
