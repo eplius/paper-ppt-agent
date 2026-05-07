@@ -209,3 +209,20 @@ export interface VersionDetailResponse {
   path: string;
   slides: VersionSlide[];
 }
+
+// ── Font replacement ─────────────────────────────────────────────────────────
+
+export interface FontReplaceRequest {
+  western_heading?: string | null;
+  western_body?: string | null;
+  cjk_heading?: string | null;
+  cjk_body?: string | null;
+}
+
+export interface FontReplaceResponse {
+  output_path: string;
+  slides_modified: number;
+  fonts_replaced: number;
+  svg_fonts_replaced: number;
+  status: string;
+}

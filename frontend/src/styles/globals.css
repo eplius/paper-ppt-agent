@@ -1689,6 +1689,102 @@ html[lang="zh-CN"] .panel-title {
   gap: 1rem;
 }
 
+/* Font customizer panel — horizontal bar above preview */
+.font-customizer-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem;
+  background: var(--panel-bg, #f8fafc);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 10px;
+  padding: 0.9rem 1.1rem;
+  margin-top: 1.5rem;
+}
+
+.font-customizer-header {
+  flex: 1 1 100%;
+  margin-bottom: 0.15rem;
+}
+
+.font-customizer-header h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 0.15rem;
+}
+
+.font-customizer-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  flex: 1 1 auto;
+}
+
+.font-customizer-fields .field-label {
+  flex: 1 1 120px;
+  min-width: 0;
+}
+
+.font-select {
+  width: 100%;
+  padding: 0.4rem 0.55rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-color, #d1d5db);
+  background: var(--input-bg, #fff);
+  color: var(--text, #1e293b);
+  font-size: 0.82rem;
+  cursor: pointer;
+  appearance: auto;
+}
+
+.font-customizer-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.35rem;
+}
+
+/* Preview layout — vertical thumbnails on left, viewer on right */
+.result-preview-layout {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  gap: 1rem;
+  margin-top: 1rem;
+  align-items: start;
+}
+
+/* SlidePreview overrides: vertical scrollable strip */
+.result-preview-layout .slide-preview-panel {
+  max-height: 620px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.result-preview-layout .thumbnail-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.result-preview-layout .thumbnail-card {
+  padding: 0.35rem;
+  border-radius: 12px;
+}
+
+.result-preview-layout .thumbnail-svg {
+  min-height: 60px;
+  border-radius: 8px;
+}
+
+.result-preview-layout .thumbnail-caption {
+  display: none;
+}
+
+/* Viewer takes the remaining space */
+.result-preview-layout .viewer-panel {
+  min-height: 580px;
+}
+
 .error-text {
   color: #ff938f;
 }
@@ -1919,6 +2015,7 @@ html[lang="zh-CN"] .panel-title {
   .studio-layout,
   .studio-workspace-grid,
   .result-grid,
+  .result-preview-layout,
   .result-hero,
   .editorial-grid,
   .result-summary,
