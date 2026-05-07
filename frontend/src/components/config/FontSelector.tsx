@@ -290,7 +290,10 @@ export function FontSelector({
 }: FontSelectorProps) {
   const { t } = useLocale();
   const hasAdvanced = onHeadingFontChange && onBodyFontChange;
-  const [advanced, setAdvanced] = useState(false);
+  // Derive advanced mode: if any advanced font is set, auto-enable advanced view
+  const hasAdvancedFonts = Boolean(headingFont || bodyFont || cjkHeadingFont || cjkBodyFont);
+  const [advancedToggled, setAdvancedToggled] = useState(false);
+  const advanced = advancedToggled || hasAdvancedFonts;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
@@ -304,7 +307,7 @@ export function FontSelector({
         <>
           <button
             type="button"
-            onClick={() => setAdvanced(!advanced)}
+            onClick={() => setAdvancedToggled(!advanced)}
             style={{
               display: "inline-flex", alignItems: "center", gap: "0.35rem",
               padding: "0.35rem 0.6rem", borderRadius: 8,
