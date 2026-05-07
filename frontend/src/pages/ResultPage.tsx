@@ -10,6 +10,7 @@ import { VersionHistory } from "../components/result/VersionHistory";
 import { useGeneration } from "../hooks/useGeneration";
 import { useLocale } from "../i18n";
 import { fetchCriticHistory, fetchJobStatus, fetchPreview, fetchProjectPreview, getDownloadUrl, getDownloadUrlForOutput, isNotFoundError, reexportPresentation } from "../lib/api";
+import { FontCustomizer } from "../components/result/FontCustomizer";
 import { translateStageStatus } from "../lib/i18nStatus";
 import type { CriticEvent, DeepSeekSettings, GenerateRequestPayload, GenerationHistoryItem, JobStatus, OpenAISettings, PreviewResponse, PreviewSlide } from "../lib/types";
 
@@ -462,6 +463,24 @@ export function ResultPage() {
       {loadError ? <p className="error-text">{loadError}</p> : null}
       {reexportError ? <p className="error-text">{reexportError}</p> : null}
 
+      {/* ── Font customization ── */}
+      {jobId && (job?.status === "complete" || job?.status === "error") ? (
+        <FontCustomizer
+          jobId={jobId}
+          onReexported={(outputPath) => {
+            setJob((current) => current ? { ...current, output_path: outputPath, status: "complete", error: null } : current);
+            setResult((current) => current ? { ...current, output_path: outputPath } : current);
+            // Refresh preview
+            const projectDir = result?.project_dir ?? historyEntry?.projectDir;
+            if (projectDir) {
+              fetchProjectPreview(projectDir)
+                .then((p) => { setSlides(p.slides); setResult((c) => c ? { ...c, slides: p.slides } : c); })
+                .catch(() => undefined);
+            }
+          }}
+        />
+      ) : null}
+
       {/* ── Feedback / Refine section ── */}
       <section className="result-refine">
         <div className="refine-header">
@@ -635,6 +654,7 @@ function ConfigViewer({
   if (options?.enable_visual_critic !== undefined) entries.push({ label: t("config.visualCritic"), value: options.enable_visual_critic ? "ON" : "OFF" });
   if (options?.enable_icon !== undefined) entries.push({ label: t("config.enableIcon"), value: options.enable_icon ? "ON" : "OFF" });
   if (options?.enable_icon_rag !== undefined) entries.push({ label: t("config.iconRag"), value: options.enable_icon_rag ? "ON" : "OFF" });
+  if (options?.template_id) entries.push({ label: t("config.template"), value: options.template_id });
   if (options?.style_overrides?.palette?.length) entries.push({ label: t("config.palette"), value: options.style_overrides.palette.join(", ") });
   if (options?.style_overrides?.font) entries.push({ label: t("config.font"), value: options.style_overrides.font });
   if (options?.style_overrides?.density) entries.push({ label: t("config.density"), value: options.style_overrides.density });

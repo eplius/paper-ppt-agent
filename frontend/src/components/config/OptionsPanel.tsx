@@ -1,5 +1,7 @@
-import { Eye, HelpCircle, Key, Puzzle, Settings2 } from "lucide-react";
+import { Eye, HelpCircle, Key, Layers, Puzzle, Settings2 } from "lucide-react";
 import { useLocale } from "../../i18n";
+import type { TemplateInfo } from "../../lib/types";
+import { FontSelector } from "./FontSelector";
 
 interface OptionsPanelProps {
   canvasFormat: string;
@@ -13,6 +15,14 @@ interface OptionsPanelProps {
   enableIcon: boolean;
   enableIconRag: boolean;
   geminiApiKey: string;
+  templateId: string;
+  templates: TemplateInfo[];
+  density: string;
+  customFont: string;
+  headingFont: string;
+  bodyFont: string;
+  cjkHeadingFont: string;
+  cjkBodyFont: string;
   onCanvasFormatChange: (value: string) => void;
   onLanguageModeChange: (value: "zh" | "en" | "custom") => void;
   onCustomLanguageChange: (value: string) => void;
@@ -24,6 +34,14 @@ interface OptionsPanelProps {
   onEnableIconChange: (value: boolean) => void;
   onEnableIconRagChange: (value: boolean) => void;
   onGeminiApiKeyChange: (value: string) => void;
+  onTemplateChange: (value: string) => void;
+  onManageTemplates: () => void;
+  onDensityChange: (value: string) => void;
+  onCustomFontChange: (value: string) => void;
+  onHeadingFontChange: (value: string) => void;
+  onBodyFontChange: (value: string) => void;
+  onCjkHeadingFontChange: (value: string) => void;
+  onCjkBodyFontChange: (value: string) => void;
 }
 
 export function OptionsPanel(props: OptionsPanelProps) {
@@ -35,6 +53,30 @@ export function OptionsPanel(props: OptionsPanelProps) {
         <p className="panel-title">{t("options.title")}</p>
       </div>
       <div className="options-grid">
+        <label className="form-field">
+          <span>
+            <Layers size={12} style={{ marginRight: 4, verticalAlign: "middle" }} />
+            {t("options.template")}
+          </span>
+          <select
+            value={props.templateId}
+            onChange={(event) => {
+              if (event.target.value === "__manage__") {
+                props.onManageTemplates();
+              } else {
+                props.onTemplateChange(event.target.value);
+              }
+            }}
+          >
+            <option value="">{t("options.templateNone")}</option>
+            {props.templates.map((tmpl) => (
+              <option key={tmpl.template_id} value={tmpl.template_id}>
+                {tmpl.label || tmpl.template_id}
+              </option>
+            ))}
+            <option value="__manage__">{t("options.templateManage")}</option>
+          </select>
+        </label>
         <label className="form-field">
           <span>{t("options.canvas")}</span>
           <select value={props.canvasFormat} onChange={(event) => props.onCanvasFormatChange(event.target.value)}>
@@ -216,6 +258,30 @@ export function OptionsPanel(props: OptionsPanelProps) {
           </div>
         ) : null}
       </div>
+
+      <label className="form-field">
+        <span>{t("options.density")}</span>
+        <select value={props.density} onChange={(event) => props.onDensityChange(event.target.value)}>
+          <option value="compact">{t("options.densityCompact")}</option>
+          <option value="normal">{t("options.densityNormal")}</option>
+          <option value="spacious">{t("options.densitySpacious")}</option>
+        </select>
+      </label>
+      <label className="form-field">
+        <span>{t("options.customFont")}</span>
+        <FontSelector
+          value={props.customFont}
+          onChange={props.onCustomFontChange}
+          headingFont={props.headingFont}
+          onHeadingFontChange={props.onHeadingFontChange}
+          bodyFont={props.bodyFont}
+          onBodyFontChange={props.onBodyFontChange}
+          cjkHeadingFont={props.cjkHeadingFont}
+          onCjkHeadingFontChange={props.onCjkHeadingFontChange}
+          cjkBodyFont={props.cjkBodyFont}
+          onCjkBodyFontChange={props.onCjkBodyFontChange}
+        />
+      </label>
 
       <label className="form-field">
         <span>{t("options.instruction")}</span>

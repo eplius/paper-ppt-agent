@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Palette, Terminal, X } from "lucide-react";
+import { Terminal, X } from "lucide-react";
 import { Layout } from "../components/layout/Layout";
 import { ModelSelector } from "../components/config/ModelSelector";
 import { OptionsPanel } from "../components/config/OptionsPanel";
-import { StylePicker, type StyleOverrides } from "../components/config/StylePicker";
 import { SlidePreview } from "../components/preview/SlidePreview";
 import { SlideViewer } from "../components/preview/SlideViewer";
 import { AgentLog } from "../components/progress/AgentLog";
@@ -13,11 +12,13 @@ import { FilePreview } from "../components/upload/FilePreview";
 import { UploadZone } from "../components/upload/UploadZone";
 import { useGeneration } from "../hooks/useGeneration";
 import { useLocale } from "../i18n";
-import type { DeepSeekSettings, OpenAISettings } from "../lib/types";
+import { fetchTemplates } from "../lib/api";
+import type { DeepSeekSettings, OpenAISettings, TemplateInfo } from "../lib/types";
+import { TemplateManager } from "../components/template/TemplateManager";
 
 const ROUTING_PROFILE_STORAGE_KEY = "paper-ppt-agent-routing-profiles-v1";
 type LanguageMode = "zh" | "en" | "custom";
-type SecondaryPanel = "style" | "log";
+type SecondaryPanel = "log";
 const DEFAULT_DEEPSEEK_SETTINGS: DeepSeekSettings = {
   thinking_enabled: true,
   reasoning_effort: "max",
@@ -101,8 +102,12 @@ export function GeneratePage() {
   const [openAISettings, setOpenAISettings] = useState<OpenAISettings>(
     DEFAULT_OPENAI_SETTINGS,
   );
-  const [style, setStyle] = useState("academic");
-  const [styleOverrides, setStyleOverrides] = useState<StyleOverrides>({});
+  const [density, setDensity] = useState("normal");
+  const [customFont, setCustomFont] = useState("");
+  const [headingFont, setHeadingFont] = useState("");
+  const [bodyFont, setBodyFont] = useState("");
+  const [cjkHeadingFont, setCjkHeadingFont] = useState("");
+  const [cjkBodyFont, setCjkBodyFont] = useState("");
   const [canvasFormat, setCanvasFormat] = useState("ppt169");
   const [languageMode, setLanguageMode] = useState<LanguageMode>(locale === "zh" ? "zh" : "en");
   const [customLanguage, setCustomLanguage] = useState("");
@@ -112,11 +117,14 @@ export function GeneratePage() {
   const [instruction, setInstruction] = useState("");
   const GEMINI_KEY_STORAGE = "paper-ppt-agent-gemini-api-key";
   const [enableVisualCritic, setEnableVisualCritic] = useState(false);
-  const [enableIcon, setEnableIcon] = useState(true);
-  const [enableIconRag, setEnableIconRag] = useState(true);
+  const [enableIcon, setEnableIcon] = useState(false);
+  const [enableIconRag, setEnableIconRag] = useState(false);
   const [geminiApiKey, setGeminiApiKey] = useState(() => {
     try { return window.localStorage.getItem(GEMINI_KEY_STORAGE) ?? ""; } catch { return ""; }
   });
+  const [templateId, setTemplateId] = useState("");
+  const [templates, setTemplates] = useState<TemplateInfo[]>([]);
+  const [templateManagerOpen, setTemplateManagerOpen] = useState(false);
   const [cancelLoading, setCancelLoading] = useState(false);
   const [secondaryPanel, setSecondaryPanel] = useState<SecondaryPanel | null>(null);
   const freshRequested = searchParams.get("fresh") === "1";
@@ -152,6 +160,12 @@ export function GeneratePage() {
   useEffect(() => {
     void loadProviders();
   }, [loadProviders]);
+
+  useEffect(() => {
+    fetchTemplates()
+      .then((list) => setTemplates(list))
+      .catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     if (freshRequested) {
@@ -227,8 +241,13 @@ export function GeneratePage() {
     setDeepSeekSettings(savedProfile?.deepseekSettings ?? DEFAULT_DEEPSEEK_SETTINGS);
     setOpenAISettings(savedProfile?.openaiSettings ?? DEFAULT_OPENAI_SETTINGS);
     setCanvasFormat(options.canvas_format || "ppt169");
-    setStyle(options.style || "academic");
-    setStyleOverrides(options.style_overrides ?? {});
+    setDensity(options.style_overrides?.density ?? "normal");
+    setCustomFont(options.style_overrides?.font ?? "");
+    setHeadingFont(options.style_overrides?.font_heading ?? "");
+    setBodyFont(options.style_overrides?.font_body ?? "");
+    setCjkHeadingFont(options.style_overrides?.cjk_heading ?? "");
+    setCjkBodyFont(options.style_overrides?.cjk_body ?? "");
+    setCustomFont(options.style_overrides?.font ?? "");
     if (options.language === "zh" || options.language === "en") {
       setLanguageMode(options.language);
       setCustomLanguage("");
@@ -243,6 +262,7 @@ export function GeneratePage() {
     setEnableIcon(options.enable_icon !== false);
     setEnableIconRag(options.enable_icon_rag !== false);
     setGeminiApiKey(options.gemini_api_key ?? "");
+    setTemplateId(options.template_id ?? "");
   }, [selectedRunConfig, targetJobId]);
 
   useEffect(() => {
@@ -303,6 +323,8 @@ export function GeneratePage() {
             enableIcon={enableIcon}
             enableIconRag={enableIconRag}
             geminiApiKey={geminiApiKey}
+            templateId={templateId}
+            templates={templates}
             onCanvasFormatChange={setCanvasFormat}
             onLanguageModeChange={setLanguageMode}
             onCustomLanguageChange={setCustomLanguage}
@@ -314,16 +336,22 @@ export function GeneratePage() {
             onEnableIconChange={setEnableIcon}
             onEnableIconRagChange={setEnableIconRag}
             onGeminiApiKeyChange={setGeminiApiKey}
+            onTemplateChange={setTemplateId}
+            onManageTemplates={() => setTemplateManagerOpen(true)}
+            density={density}
+            customFont={customFont}
+            headingFont={headingFont}
+            bodyFont={bodyFont}
+            cjkHeadingFont={cjkHeadingFont}
+            cjkBodyFont={cjkBodyFont}
+            onDensityChange={setDensity}
+            onCustomFontChange={setCustomFont}
+            onHeadingFontChange={setHeadingFont}
+            onBodyFontChange={setBodyFont}
+            onCjkHeadingFontChange={setCjkHeadingFont}
+            onCjkBodyFontChange={setCjkBodyFont}
           />
           <div className="studio-secondary-actions">
-            <button
-              type="button"
-              className={`secondary-action ${secondaryPanel === "style" ? "secondary-action-active" : ""}`}
-              onClick={() => setSecondaryPanel((current) => (current === "style" ? null : "style"))}
-            >
-              <Palette size={16} />
-              <span>{t("style.title")}</span>
-            </button>
             <button
               type="button"
               className={`secondary-action ${secondaryPanel === "log" ? "secondary-action-active" : ""}`}
@@ -371,19 +399,27 @@ export function GeneratePage() {
                 },
                 options: {
                   canvas_format: canvasFormat,
-                  style,
+                  style: "academic",
                   language: resolveRequestedLanguage(languageMode, customLanguage),
                   num_pages: numPages ? Number(numPages) : undefined,
                   detail_level: detailLevel,
                   timeout_seconds: parseOptionalPositiveInt(timeoutSeconds),
                   style_overrides:
-                    styleOverrides.palette || styleOverrides.font || styleOverrides.density
-                      ? styleOverrides
+                    customFont || headingFont || bodyFont || cjkHeadingFont || cjkBodyFont || density !== "normal"
+                      ? {
+                          font: customFont || undefined,
+                          font_heading: headingFont || undefined,
+                          font_body: bodyFont || undefined,
+                          cjk_heading: cjkHeadingFont || undefined,
+                          cjk_body: cjkBodyFont || undefined,
+                          density: density as "compact" | "normal" | "spacious",
+                        }
                       : undefined,
                   enable_visual_critic: enableVisualCritic,
                   enable_icon: enableIcon,
                   enable_icon_rag: enableIconRag,
                   gemini_api_key: geminiApiKey || undefined,
+                  template_id: templateId || undefined,
                 },
               });
               connect(jobId);
@@ -419,14 +455,8 @@ export function GeneratePage() {
       >
         <div className="studio-secondary-header">
           <div className="panel-title-row">
-            {secondaryPanel === "style" ? (
-              <Palette size={15} className="panel-title-icon" />
-            ) : (
-              <Terminal size={15} className="panel-title-icon" />
-            )}
-            <p className="panel-title">
-              {secondaryPanel === "style" ? t("style.title") : t("log.title")}
-            </p>
+            <Terminal size={15} className="panel-title-icon" />
+            <p className="panel-title">{t("log.title")}</p>
           </div>
           <button
             type="button"
@@ -438,17 +468,20 @@ export function GeneratePage() {
           </button>
         </div>
         <div className="studio-secondary-body">
-          {secondaryPanel === "style" ? (
-            <StylePicker
-              value={style}
-              onChange={setStyle}
-              overrides={styleOverrides}
-              onOverridesChange={setStyleOverrides}
-            />
-          ) : null}
           {secondaryPanel === "log" ? <AgentLog logs={logs} criticEvents={criticEvents} jobId={jobId} /> : null}
         </div>
       </aside>
+      <TemplateManager
+        open={templateManagerOpen}
+        onClose={() => setTemplateManagerOpen(false)}
+        onSelect={(tid) => {
+          setTemplateId(tid);
+          // Refresh templates list to include newly imported ones
+          fetchTemplates()
+            .then((list) => setTemplates(list))
+            .catch(() => undefined);
+        }}
+      />
     </Layout>
   );
 }

@@ -39,7 +39,11 @@ class ModelConfig(BaseModel):
 
 class StyleOverrides(BaseModel):
     palette: list[str] | None = None  # e.g. ["#0b1220", "#ff8a3d", "#f5f7fb"]
-    font: str | None = None
+    font: str | None = None           # Default font for all text
+    font_heading: str | None = None   # Western heading font (advanced mode)
+    font_body: str | None = None      # Western body font (advanced mode)
+    cjk_heading: str | None = None    # CJK heading font (advanced mode)
+    cjk_body: str | None = None       # CJK body font (advanced mode)
     density: str | None = None        # "compact" | "normal" | "spacious"
 
 
@@ -53,9 +57,10 @@ class GenerationOptions(BaseModel):
     timeout_seconds: int | None = Field(default=None, ge=1)
     style_overrides: StyleOverrides | None = None
     enable_visual_critic: bool = False
-    enable_icon: bool = True
-    enable_icon_rag: bool = True
+    enable_icon: bool = False
+    enable_icon_rag: bool = False
     gemini_api_key: str | None = None
+    template_id: str | None = None  # Template ID from assets/templates/layouts/
 
 
 class GenerateRequest(BaseModel):
