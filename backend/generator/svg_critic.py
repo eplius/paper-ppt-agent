@@ -102,29 +102,67 @@ class CriticReport:
         }
 
     def to_prompt_block(self) -> str:
-        """Render the report as a targeted repair instruction block."""
-        if self.passed:
+        """Render the report as a targeted repair instruction block.
+
+        Returns a non-empty string whenever there are violations, even if
+        they are non-blocking warnings — the LLM benefits from visual
+        quality feedback during repair.
+        """
+        if not self.violations:
             return ""
         lines = ["## Validation Report", ""]
-        lines.append(
-            f"The previous SVG failed static validation "
-            f"({self.error_count} errors, {self.warning_count} warnings). "
-            "Fix ONLY the specific issues listed below."
-        )
+        if self.error_count > 0:
+            lines.append(
+                f"The previous SVG has {self.error_count} error(s) and "
+                f"{self.warning_count} warning(s). Address the issues below."
+            )
+        else:
+            lines.append(
+                f"The previous SVG has {self.warning_count} visual quality "
+                f"warning(s). Address as many as practical without restructuring "
+                f"the page."
+            )
         lines.append("")
-        for i, v in enumerate(self.violations, 1):
-            bbox_str = ""
-            if v.bbox:
-                x, y, w, h = v.bbox
-                bbox_str = f" at bbox(x={x:.0f}, y={y:.0f}, w={w:.0f}, h={h:.0f})"
-            elem_str = f" <{v.element}>" if v.element else ""
-            lines.append(f"{i}. [{v.rule}]{elem_str}{bbox_str}: {v.detail}")
-        lines.append("")
+
+        # Separate errors from warnings for clearer repair guidance.
+        errors = [v for v in self.violations if v.severity == "error"]
+        warnings = [v for v in self.violations if v.severity == "warning"]
+
+        if errors:
+            lines.append("### Errors (must fix)")
+            for i, v in enumerate(errors, 1):
+                bbox_str = ""
+                if v.bbox:
+                    x, y, w, h = v.bbox
+                    bbox_str = f" at bbox(x={x:.0f}, y={y:.0f}, w={w:.0f}, h={h:.0f})"
+                elem_str = f" <{v.element}>" if v.element else ""
+                lines.append(f"{i}. [{v.rule}]{elem_str}{bbox_str}: {v.detail}")
+            lines.append("")
+
+        if warnings:
+            lines.append("### Warnings (should fix)")
+            for i, v in enumerate(warnings, 1):
+                bbox_str = ""
+                if v.bbox:
+                    x, y, w, h = v.bbox
+                    bbox_str = f" at bbox(x={x:.0f}, y={y:.0f}, w={w:.0f}, h={h:.0f})"
+                elem_str = f" <{v.element}>" if v.element else ""
+                lines.append(f"{i}. [{v.rule}]{elem_str}{bbox_str}: {v.detail}")
+            lines.append("")
+
         lines.append("## Repair Instructions")
-        lines.append("- Fix ONLY the violations listed above.")
         lines.append(
-            "- PRESERVE the overall layout, content, colors, and information density of the previous SVG. "
-            "Do NOT add or remove information. Do NOT restyle unrelated elements."
+            "- Fix all errors first. Then address as many warnings as practical."
+        )
+        lines.append(
+            "- When fixing an issue, adjust only the elements directly involved. "
+            "If moving a text element, also shift any closely-related decorative "
+            "elements (connecting lines, background rects) to maintain alignment."
+        )
+        lines.append(
+            "- Do NOT restructure the page or change the overall layout, color "
+            "scheme, or information density unless a local overflow/container "
+            "violation explicitly requires resizing or re-wrapping that area."
         )
         lines.append("- Return the complete corrected SVG only, wrapped in ```svg code block.")
         return "\n".join(lines)
@@ -176,6 +214,18 @@ class CriticConfig:
     # chip/card backgrounds, which are normally drawn before their labels, do
     # not trip the rule.
     text_cover_min_ratio: float = 0.18
+
+    # Visual quality detectors.
+
+    # Line-space waste: fraction of available width that is unused at
+    # the end of a text line.  Values above this trigger a warning
+    # suggesting the line could be merged with the next sibling.
+    line_waste_threshold: float = 0.40
+
+    # Icon-text misalignment: when a <circle> icon and a sibling <text>
+    # title appear to be on the same visual row, flag if the vertical
+    # offset between circle cy and text y exceeds font_size * this factor.
+    icon_text_misalign_factor: float = 0.30
 
 
 def _strip_ns(tag: str) -> str:
@@ -643,6 +693,28 @@ def check_svg(svg_content: str, config: CriticConfig | None = None) -> CriticRep
             )
             break
 
+    # 4e. Local container checks: text should stay inside the card/callout
+    #     that visually owns it. This catches long lines that fit the canvas
+    #     but overflow a local card or column.
+    if canvas:
+        _check_text_container_overflow(
+            root, text_boxes, element_order, canvas, violations
+        )
+
+    # 4f. Empty bullet detector: a bullet marker without a nearby text line
+    #     usually means finalization dropped or misplaced the bullet content.
+    _check_empty_bullets(root, text_boxes, violations)
+
+    # 4g. Icon-text vertical misalignment: a <circle> icon and a
+    #     sibling <text> title on the same visual row but whose y
+    #     coordinates are not visually centered.
+    _check_icon_text_misalign(root, cfg, violations)
+
+    # 4h. Bold tspan in CJK text: using font-weight="bold" on a tspan
+    #     inside CJK text causes uneven character spacing because bold
+    #     CJK glyphs are wider than regular ones.
+    _check_bold_tspan_in_cjk(root, violations)
+
     # 5. Palette compliance (optional).
     if cfg.allowed_palette:
         allowed = {_normalize_hex(c) for c in cfg.allowed_palette}
@@ -925,3 +997,369 @@ def _coverage_ratio(
     if ix1 <= ix0 or iy1 <= iy0:
         return 0.0
     return ((ix1 - ix0) * (iy1 - iy0)) / (tw * th)
+
+
+# ── Visual quality helpers ────────────────────────────────────────────────────
+
+
+def _box_contains_point(
+    box: tuple[float, float, float, float],
+    px: float,
+    py: float,
+) -> bool:
+    x, y, w, h = box
+    return x <= px <= x + w and y <= py <= y + h
+
+
+def _box_inside(
+    inner: tuple[float, float, float, float],
+    outer: tuple[float, float, float, float],
+    *,
+    slack: float = 0.0,
+) -> bool:
+    ix, iy, iw, ih = inner
+    ox, oy, ow, oh = outer
+    return (
+        ix >= ox - slack
+        and iy >= oy - slack
+        and ix + iw <= ox + ow + slack
+        and iy + ih <= oy + oh + slack
+    )
+
+
+def _collect_text_containers(
+    root: ET.Element,
+    element_order: dict[int, int],
+    canvas: tuple[float, float],
+) -> list[tuple[int, ET.Element, tuple[float, float, float, float]]]:
+    """Collect filled rects that can act as local text containers."""
+    cw, ch = canvas
+    containers: list[tuple[int, ET.Element, tuple[float, float, float, float]]] = []
+    for el in _iter_all(root):
+        if _strip_ns(el.tag) != "rect" or not _is_visible_filled_shape(el):
+            continue
+        bbox = _shape_bbox(el)
+        if bbox is None:
+            continue
+        x, y, w, h = bbox
+        if w < 80 or h < 32:
+            continue
+        # Skip full-slide backgrounds and decorative bands.
+        if w >= cw * 0.9 and h >= ch * 0.7:
+            continue
+        if h <= 12 or w / max(h, 1.0) >= 35:
+            continue
+        containers.append((element_order.get(id(el), 0), el, bbox))
+    return containers
+
+
+def _check_text_container_overflow(
+    root: ET.Element,
+    text_boxes: list[tuple[int, ET.Element, tuple[float, float, float, float]]],
+    element_order: dict[int, int],
+    canvas: tuple[float, float],
+    violations: list[Violation],
+) -> None:
+    containers = _collect_text_containers(root, element_order, canvas)
+    if not containers:
+        return
+
+    for text_order, text_el, text_bbox in text_boxes:
+        text = _text_of(text_el)
+        if not text:
+            continue
+        anchor_x = _float_attr(text_el, "x", 0.0)
+        anchor_y = _float_attr(text_el, "y", 0.0) - _font_size_of(text_el, 16.0) * 0.4
+        owner: tuple[int, ET.Element, tuple[float, float, float, float]] | None = None
+        owner_area = float("inf")
+        for container in containers:
+            container_order, _container_el, container_bbox = container
+            if container_order > text_order:
+                continue
+            if not _box_contains_point(container_bbox, anchor_x, anchor_y):
+                continue
+            _x, _y, w, h = container_bbox
+            area = w * h
+            if area < owner_area:
+                owner = container
+                owner_area = area
+        if owner is None:
+            continue
+
+        _container_order, container_el, container_bbox = owner
+        x, y, w, h = container_bbox
+        pad = min(16.0, max(8.0, min(w, h) * 0.08))
+        padded = (x + pad, y + pad, max(0.0, w - pad * 2), max(0.0, h - pad * 2))
+        if _box_inside(text_bbox, padded, slack=3.0):
+            continue
+        tx, ty, tw, th = text_bbox
+        violations.append(
+            Violation(
+                rule="text_overflow_in_container",
+                severity="error",
+                detail=(
+                    "Text extends outside its local card/callout container. "
+                    f"Estimated text bbox ({tx:.0f},{ty:.0f},{tw:.0f},{th:.0f}) "
+                    f"does not fit inside container {_element_identifier(container_el)} "
+                    f"with padding {pad:.0f}px. Wrap the line, shorten it, or use "
+                    "a wider layout."
+                ),
+                element=_element_identifier(text_el),
+                bbox=text_bbox,
+            )
+        )
+
+
+def _check_empty_bullets(
+    root: ET.Element,
+    text_boxes: list[tuple[int, ET.Element, tuple[float, float, float, float]]],
+    violations: list[Violation],
+) -> None:
+    for el in _iter_all(root):
+        if _strip_ns(el.tag) != "circle":
+            continue
+        cx = _float_attr(el, "cx", 0.0)
+        cy = _float_attr(el, "cy", 0.0)
+        r = _float_attr(el, "r", 0.0)
+        if r < 3.0 or r > 8.0:
+            continue
+        # Likely list bullets. Larger diagram nodes, scatter points, and icon
+        # circles deeper in charts are ignored.
+        if cx > 120:
+            continue
+        has_text = False
+        for _order, text_el, bbox in text_boxes:
+            tx, ty, tw, th = bbox
+            if tx < cx + r + 6:
+                continue
+            if tx > cx + 700:
+                continue
+            vertical_overlap = not (ty + th < cy - 16 or ty > cy + 16)
+            baseline_close = abs(_float_attr(text_el, "y", 0.0) - cy) <= 22
+            if vertical_overlap or baseline_close:
+                has_text = True
+                break
+        if has_text:
+            continue
+        violations.append(
+            Violation(
+                rule="empty_bullet",
+                severity="error",
+                detail=(
+                    "A bullet marker has no nearby text on the same row. This often "
+                    "means text was dropped, moved, or hidden during SVG generation "
+                    "or finalization."
+                ),
+                element=_element_identifier(el),
+                bbox=(cx - r, cy - r, r * 2, r * 2),
+            )
+        )
+
+
+def _parent_of(el: ET.Element, root: ET.Element) -> ET.Element | None:
+    """Find the direct parent of *el* by walking the tree."""
+    for parent in root.iter():
+        for child in parent:
+            if child is el:
+                return parent
+    return None
+
+
+def _check_line_space_waste(
+    root: ET.Element,
+    text_boxes: list[tuple[int, ET.Element, tuple[float, float, float, float]]],
+    cfg: CriticConfig,
+    violations: list[Violation],
+) -> None:
+    """Flag adjacent text lines in the same container where the first line
+    uses less than (1 - line_waste_threshold) of the available width,
+    suggesting an unnecessary line break."""
+    if not text_boxes:
+        return
+
+    # Build a mapping: parent id → list of (order, el, bbox) for its text children
+    from collections import defaultdict
+
+    groups: dict[int, list[tuple[int, ET.Element, tuple[float, float, float, float]]]] = (
+        defaultdict(list)
+    )
+    for order, el, bbox in text_boxes:
+        parent = _parent_of(el, root)
+        if parent is not None:
+            groups[id(parent)].append((order, el, bbox))
+
+    for _pid, members in groups.items():
+        if len(members) < 2:
+            continue
+        # Sort by document order
+        members.sort(key=lambda m: m[0])
+        for i in range(len(members) - 1):
+            _, el_a, bbox_a = members[i]
+            _, el_b, bbox_b = members[i + 1]
+
+            ax, ay, aw, _ah = bbox_a
+            bx, by, bw, _bh = bbox_b
+
+            # Must share the same x (within 2px tolerance)
+            if abs(ax - bx) > 2.0:
+                continue
+
+            # Must be consecutive lines (y gap ≈ line height)
+            font_a = _font_size_of(el_a, 16.0)
+            line_height = font_a * 1.5  # approximate line height
+            y_gap = by - ay
+            if y_gap < line_height * 0.5 or y_gap > line_height * 2.0:
+                continue
+
+            # Compute container width: look for nearest parent <rect> or
+            # use canvas width as fallback.
+            container_w = 0.0
+            parent = _parent_of(el_a, root)
+            if parent is not None:
+                for sib in parent:
+                    tag = _strip_ns(sib.tag)
+                    if tag == "rect":
+                        rw = _float_attr(sib, "width", 0.0)
+                        rx = _float_attr(sib, "x", 0.0)
+                        if rw > container_w and rx <= ax:
+                            container_w = rw - (ax - rx)
+            if container_w <= 0:
+                # Fallback: assume content area width
+                container_w = 1200.0
+
+            available_w = container_w
+            waste_ratio = 1.0 - (aw / available_w) if available_w > 0 else 0.0
+
+            if waste_ratio > cfg.line_waste_threshold and aw > 0:
+                combined_text = _text_of(el_a) + _text_of(el_b)
+                combined_w = _text_width_estimate(combined_text, font_a)
+                would_fit = combined_w <= available_w
+
+                detail = (
+                    f"Line ends with {waste_ratio:.0%} unused space "
+                    f"(text width {aw:.0f}px of {available_w:.0f}px available). "
+                )
+                if would_fit:
+                    detail += (
+                        "Combined with the next line the text would still fit — "
+                        "merge into a single line to avoid unnecessary line breaks."
+                    )
+                else:
+                    detail += (
+                        "Consider extending this line further before breaking "
+                        "to reduce wasted space."
+                    )
+
+                violations.append(
+                    Violation(
+                        rule="line_space_waste",
+                        severity="warning",
+                        detail=detail,
+                        element=_element_identifier(el_a),
+                        bbox=bbox_a,
+                    )
+                )
+
+
+def _check_icon_text_misalign(
+    root: ET.Element,
+    cfg: CriticConfig,
+    violations: list[Violation],
+) -> None:
+    """Detect <circle> icons that are vertically misaligned with sibling
+    <text> titles on the same visual row."""
+    for parent in root.iter():
+        children = list(parent)
+        circles: list[ET.Element] = []
+        texts: list[ET.Element] = []
+        for child in children:
+            tag = _strip_ns(child.tag)
+            if tag == "circle":
+                circles.append(child)
+            elif tag == "text":
+                texts.append(child)
+
+        if not circles or not texts:
+            continue
+
+        for circ in circles:
+            cy = _float_attr(circ, "cy", 0.0)
+            cx = _float_attr(circ, "cx", 0.0)
+            r = _float_attr(circ, "r", 0.0)
+            if r <= 0 or r > 30:
+                continue  # skip non-icon circles
+
+            for txt_el in texts:
+                text_y = _float_attr(txt_el, "y", 0.0)
+                text_x = _float_attr(txt_el, "x", 0.0)
+                font_size = _font_size_of(txt_el, 16.0)
+
+                # Check if they're on the same visual row:
+                # text_x should be to the right of the circle
+                if text_x < cx + r:
+                    continue
+                # y values should be roughly aligned (within circle radius * 2)
+                if abs(text_y - cy) > r * 3:
+                    continue
+
+                # For visual centering: text baseline should be at
+                # cy + font_size * 0.35 (approximate optical center).
+                expected_y = cy + font_size * 0.35
+                actual_offset = abs(text_y - expected_y)
+                threshold = font_size * cfg.icon_text_misalign_factor
+
+                if actual_offset > threshold:
+                    violations.append(
+                        Violation(
+                            rule="icon_text_misalign",
+                            severity="warning",
+                            detail=(
+                                f"Circle icon at cy={cy:.0f} and text at y={text_y:.0f} "
+                                f"are visually misaligned (offset {actual_offset:.1f}px "
+                                f"from expected y≈{expected_y:.0f}). "
+                                f"For visual centering, set text y ≈ "
+                                f"circle_cy + font_size * 0.35 = {expected_y:.0f}."
+                            ),
+                            element=_element_identifier(txt_el),
+                        )
+                    )
+
+
+def _check_bold_tspan_in_cjk(
+    root: ET.Element,
+    violations: list[Violation],
+) -> None:
+    """Flag tspan elements with font-weight='bold' inside CJK text,
+    because bold CJK glyphs are wider than regular ones and cause
+    uneven character spacing."""
+    for el in _iter_all(root):
+        if _strip_ns(el.tag) != "tspan":
+            continue
+
+        fw = (el.get("font-weight") or "").strip().lower()
+        if fw not in ("bold", "700", "800", "900"):
+            continue
+
+        # Check if the tspan contains CJK characters
+        text = el.text or ""
+        if not _CJK_RE.search(text):
+            # Also check parent <text> for CJK context
+            parent = _parent_of(el, root)
+            if parent is not None:
+                text = _text_of(parent)
+            if not _CJK_RE.search(text):
+                continue
+
+        violations.append(
+            Violation(
+                rule="bold_tspan_in_cjk",
+                severity="warning",
+                detail=(
+                    "Bold <tspan> in CJK text causes uneven character spacing "
+                    "because bold CJK glyphs are wider than regular ones. "
+                    "Use fill color instead of font-weight to emphasize keywords "
+                    '(e.g., fill="#C53030" instead of font-weight="bold").'
+                ),
+                element=_element_identifier(el),
+            )
+        )

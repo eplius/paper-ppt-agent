@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import { cancelJob, fetchJobStatus, fetchPreview, fetchProjectPreview, fetchProviders, generatePresentation, isNotFoundError, refinePresentation, uploadPaper } from "../lib/api";
+import { cancelJob, deleteJob, fetchJobStatus, fetchPreview, fetchProjectPreview, fetchProviders, generatePresentation, isNotFoundError, refinePresentation, uploadPaper } from "../lib/api";
 import type {
   CriticEvent,
   GenerateRequestPayload,
@@ -12,17 +12,21 @@ import type {
   PreviewSlide,
   ProviderListItem,
   RefineRequestPayload,
+  ResearchEnrichmentStats,
+  ResearchConfig,
   UploadResponse,
 } from "../lib/types";
 import { openJobSocket } from "../lib/ws";
 
 type ConnectionStatus = "disconnected" | "connecting" | "connected";
 const FINAL_JOB_STATUSES = new Set(["complete", "error", "cancelled"]);
-const HISTORY_LIMIT = 8;
+const HISTORY_STORAGE_LIMIT = 50;
+const HISTORY_STATUS_SYNC_LIMIT = 8;
 const LEGACY_GENERATION_STORAGE_KEY = "paper-ppt-agent-generation-v1";
 const GENERATION_STORAGE_KEY = "paper-ppt-agent-generation-v2";
 const PERSISTED_LOG_LIMIT = 200;
 const LIVE_JOB_STORAGE_PREFIX = "paper-ppt-live-job:";
+const HISTORY_STATUS_SYNC_TIMEOUT_MS = 4000;
 
 /** Per-job seq deduper. Replays after reconnect can re-deliver events
  *  the client already processed; we drop anything with seq <= the last
@@ -78,6 +82,10 @@ interface RunSnapshot {
   currentRunConfig?: RunConfigSnapshot;
   connectionStatus: ConnectionStatus;
   lastSeq?: number;
+  // Latest external-research enrichment stats received via the progress
+  // channel. Used by ProgressPanel to confirm to the user that the
+  // toggles they enabled actually returned data (or to show why not).
+  enrichmentStats?: ResearchEnrichmentStats;
 }
 
 type StoredRunSnapshot = Partial<RunSnapshot> & { jobId: string };
@@ -90,6 +98,7 @@ interface GenerationState {
   slides: PreviewSlide[];
   logs: string[];
   criticEvents: CriticEvent[];
+  enrichmentStats?: ResearchEnrichmentStats;
   selectedSlide?: PreviewSlide;
   connectionStatus: ConnectionStatus;
   error?: string;
@@ -106,6 +115,7 @@ interface GenerationState {
   cancelCurrentRun: () => Promise<void>;
   connect: (jobId: string) => void;
   hydrateResult: (jobId: string) => Promise<void>;
+  refreshHistoryStatuses: () => Promise<void>;
   resumeCurrentRun: (targetJobId?: string) => Promise<boolean>;
   selectSlide: (slide?: PreviewSlide) => void;
   syncHistory: (jobId?: string) => void;
@@ -160,7 +170,7 @@ function upsertHistoryItem(history: GenerationHistoryItem[], item: GenerationHis
     .sort((left, right) =>
       (right.createdAt ?? right.updatedAt).localeCompare(left.createdAt ?? left.updatedAt),
     )
-    .slice(0, HISTORY_LIMIT);
+    .slice(0, HISTORY_STORAGE_LIMIT);
 }
 
 function buildHistoryItemFromRun(history: GenerationHistoryItem[], run?: RunSnapshot) {
@@ -169,6 +179,7 @@ function buildHistoryItemFromRun(history: GenerationHistoryItem[], run?: RunSnap
   }
 
   const existing = history.find((entry) => entry.jobId === run.jobId);
+  const status = deriveRunStatus(run, existing);
   const slideCount = Math.max(
     run.slides.length,
     run.result?.slides.length ?? 0,
@@ -182,7 +193,7 @@ function buildHistoryItemFromRun(history: GenerationHistoryItem[], run?: RunSnap
     jobId: run.jobId,
     fileName: run.uploadSession?.file_info.name ?? existing?.fileName ?? run.jobId,
     sourceType: run.uploadSession?.file_info.source_type ?? existing?.sourceType,
-    status: run.result?.status ?? run.job?.status ?? existing?.status ?? "pending",
+    status,
     slideCount,
     createdAt: existing?.createdAt ?? existing?.updatedAt ?? now,
     updatedAt: now,
@@ -202,6 +213,26 @@ function buildHistoryItemFromRun(history: GenerationHistoryItem[], run?: RunSnap
     // previously in history. ``null`` clears the slot on success.
     error: run.error ?? existing?.error ?? null,
   } satisfies GenerationHistoryItem;
+}
+
+function deriveRunStatus(run: RunSnapshot, existing?: GenerationHistoryItem): string {
+  // JobStatus is the authoritative lifecycle state. PreviewResponse.status is
+  // only a rendering/result hint and may lag behind after cancellation or
+  // failure, so it must never overwrite a terminal job state in history.
+  const jobStatus = normalizeLifecycleStatus(run.job?.status);
+  if (jobStatus) {
+    return jobStatus;
+  }
+  const resultStatus = normalizeLifecycleStatus(run.result?.status);
+  if (resultStatus) {
+    return resultStatus;
+  }
+  return normalizeLifecycleStatus(existing?.status) ?? "pending";
+}
+
+function normalizeLifecycleStatus(status?: string | null): string | undefined {
+  const value = status?.toLowerCase().trim();
+  return value || undefined;
 }
 
 function pickSelectedSlide(slides: PreviewSlide[], selectedSlide?: PreviewSlide) {
@@ -283,7 +314,43 @@ function createRunSnapshot(
     currentRunConfig: params?.currentRunConfig,
     connectionStatus: params?.connectionStatus ?? "disconnected",
     lastSeq: params?.lastSeq,
+    enrichmentStats: params?.enrichmentStats,
   };
+}
+
+function hasResearchSources(config?: ResearchConfig): boolean {
+  return Boolean(
+    config?.arxiv_search_enabled ||
+      config?.semantic_scholar_enabled ||
+      config?.web_search_enabled,
+  );
+}
+
+function buildEnrichmentPlaceholder(config?: ResearchConfig): ResearchEnrichmentStats | undefined {
+  if (!hasResearchSources(config)) {
+    return undefined;
+  }
+  const stats: ResearchEnrichmentStats = { phase: "querying", total_findings: 0, filtered_findings: 0 };
+  if (config?.arxiv_search_enabled) {
+    stats.arxiv = { found: 0 };
+  }
+  if (config?.semantic_scholar_enabled) {
+    stats.semantic_scholar = { found: 0 };
+  }
+  if (config?.web_search_enabled) {
+    stats.web = {
+      found: 0,
+      provider: config.tavily_api_key ? "tavily" : config.serpapi_key ? "serpapi" : undefined,
+    };
+  }
+  return stats;
+}
+
+function normalizeEnrichmentPayload(raw: unknown, fallback?: ResearchEnrichmentStats) {
+  if (!raw || typeof raw !== "object") {
+    return fallback;
+  }
+  return raw as ResearchEnrichmentStats;
 }
 
 function applyRunToCurrent(run?: RunSnapshot) {
@@ -297,6 +364,7 @@ function applyRunToCurrent(run?: RunSnapshot) {
     slides: run.slides,
     logs: run.logs,
     criticEvents: run.criticEvents,
+    enrichmentStats: run.enrichmentStats,
     selectedSlide: run.selectedSlide,
     connectionStatus: run.connectionStatus,
     error: run.error,
@@ -349,6 +417,7 @@ function normalizeStoredRun(jobId: string, run?: Partial<RunSnapshot>): RunSnaps
     result: run?.result,
     currentRunConfig: run?.currentRunConfig,
     connectionStatus: "disconnected",
+    enrichmentStats: run?.enrichmentStats,
   });
 }
 
@@ -359,6 +428,16 @@ function normalizeStoredRuns(runs?: Record<string, StoredRunSnapshot>) {
   return Object.fromEntries(
     Object.entries(runs).map(([jobId, run]) => [jobId, normalizeStoredRun(jobId, run)]),
   );
+}
+
+async function fetchJobStatusWithTimeout(jobId: string, timeoutMs = HISTORY_STATUS_SYNC_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetchJobStatus(jobId, { signal: controller.signal });
+  } finally {
+    window.clearTimeout(timer);
+  }
 }
 
 export const useGeneration = create<GenerationState>()(
@@ -405,6 +484,7 @@ export const useGeneration = create<GenerationState>()(
             options: payload.options,
             parentJobId: null,
           },
+          enrichmentStats: buildEnrichmentPlaceholder(payload.options.research_config),
           error: undefined,
           result: undefined,
           selectedSlide: undefined,
@@ -449,6 +529,7 @@ export const useGeneration = create<GenerationState>()(
             options: payload.options,
             parentJobId: payload.job_id,
           },
+          enrichmentStats: buildEnrichmentPlaceholder(payload.options.research_config),
           error: undefined,
           result: undefined,
           selectedSlide: undefined,
@@ -603,11 +684,21 @@ export const useGeneration = create<GenerationState>()(
                 }
               }
 
+              // Capture external-research enrichment stats. Pipeline emits
+              // these once per run during the research stage so users see
+              // that the toggles they enabled actually returned data.
+              let enrichmentStats = currentRun.enrichmentStats;
+              const rawEnrichment = (event.data as { enrichment?: unknown }).enrichment;
+              if (rawEnrichment && typeof rawEnrichment === "object") {
+                enrichmentStats = normalizeEnrichmentPayload(rawEnrichment, enrichmentStats);
+              }
+
               const updatedRun: RunSnapshot = {
                 ...currentRun,
                 job: nextJob,
                 slides,
                 criticEvents,
+                enrichmentStats,
                 selectedSlide:
                   event.type === "slide_ready"
                     ? pickLiveSelectedSlide(currentRun.slides, slides, currentRun.selectedSlide)
@@ -756,6 +847,62 @@ export const useGeneration = create<GenerationState>()(
         });
         get().syncHistory(jobId);
       },
+      async refreshHistoryStatuses() {
+        const candidates = get()
+          .history.filter((entry) => !FINAL_JOB_STATUSES.has(entry.status.toLowerCase()))
+          .slice(0, HISTORY_STATUS_SYNC_LIMIT);
+        if (!candidates.length) {
+          return;
+        }
+
+        await Promise.all(
+          candidates.map(async (entry) => {
+            try {
+              const job = await fetchJobStatusWithTimeout(entry.jobId);
+              set((state) => {
+                const currentRun =
+                  state.runs[entry.jobId] ??
+                  createRunSnapshot(entry.jobId, {
+                    job: buildStoredJob(entry),
+                    error: entry.error ?? undefined,
+                  });
+                const updatedRun: RunSnapshot = {
+                  ...currentRun,
+                  job,
+                  error: job.error ?? undefined,
+                  connectionStatus: FINAL_JOB_STATUSES.has(job.status)
+                    ? "disconnected"
+                    : currentRun.connectionStatus,
+                };
+                const nextItem = buildHistoryItemFromRun(state.history, updatedRun);
+                return {
+                  ...(state.jobId === entry.jobId ? applyRunToCurrent(updatedRun) : {}),
+                  runs: {
+                    ...state.runs,
+                    [entry.jobId]: updatedRun,
+                  },
+                  history: nextItem ? upsertHistoryItem(state.history, nextItem) : state.history,
+                  activeJobId:
+                    state.activeJobId === entry.jobId && FINAL_JOB_STATUSES.has(job.status)
+                      ? undefined
+                      : state.activeJobId,
+                };
+              });
+              if (job.status === "complete") {
+                void get().hydrateResult(entry.jobId).catch(() => undefined);
+              }
+            } catch (error) {
+              if (isNotFoundError(error)) {
+                try {
+                  sessionStorage.removeItem(`${LIVE_JOB_STORAGE_PREFIX}${entry.jobId}`);
+                } catch {
+                  /* noop */
+                }
+              }
+            }
+          }),
+        );
+      },
       async resumeCurrentRun(targetJobId) {
         const currentJobId = targetJobId ?? get().activeJobId ?? get().jobId;
         if (!currentJobId) {
@@ -892,6 +1039,7 @@ export const useGeneration = create<GenerationState>()(
         if (status && !FINAL_JOB_STATUSES.has(status)) {
           await cancelJob(jobId).catch(() => undefined);
         }
+        await deleteJob(jobId).catch(() => undefined);
         const socket = get().socketsByJob[jobId];
         socket?.close();
         set((state) => {

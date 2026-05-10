@@ -50,6 +50,21 @@ Every page MUST follow this three-region structure. Content area boundary is a *
 13. Ensure sufficient contrast: dark text on light backgrounds, light text on dark backgrounds. Never pair light text with light fill or dark text with dark fill.
 14. For KPI, metric, or callout rows that pair a large number with a smaller label on the same visual line, use the same SVG text baseline: the number `<text>` and label `<text>` must have the same `y` value. Do not move the smaller label down to visually center it; SVG `y` is a baseline, so offsets like `label y = number y + 10` make the row look misaligned. If the label should sit below the number, place it on a clearly separate line with enough vertical gap.
 15. **Text density**: Do NOT fill the entire content area with text. Leave at least 20% whitespace. For bullet lists, limit to 6-8 items per slide. If content exceeds the area capacity, split across multiple slides.
+16. **CJK emphasis — avoid `font-weight: bold` in `<tspan>`**: Bold CJK glyphs are ~1.05-1.1× wider than regular, causing visible spacing jumps at tspan boundaries. Instead, emphasize CJK text with a contrasting `fill` color (e.g. `<tspan fill="#2B6CB0">重点词</tspan>`). Only use `font-weight="bold"` on standalone title/heading `<text>` elements, never inline inside a body-text line.
+17. **Line wrapping**: Wrap text by the local container width, not the full page width. A card, column, callout, or diagram label is a hard text box. Keep manual line breaks if they prevent overflow; do not merge lines just to fill width.
+18. **Icon-text vertical alignment**: When an explicitly assigned icon or structural marker sits beside a text label on the same visual row, SVG `y` is the baseline, not the visual center. To center text with a circle marker, use: `text_y = circle_cy + font_size × 0.35`. Example: circle at cy=200, font_size=18 → text y = 200 + 6.3 ≈ 206. Do NOT set text y equal to circle cy.
+19. **No fake card icons**: If the current page's Icon Guidance says there is no explicit icon assignment, do not create standalone letter/symbol badges such as `P`, `Δ`, `!`, `G`, `?`, or `i` inside small squares/circles. For technical cards, use numbered markers or small mechanism diagrams instead.
+
+## CJK Text Layout Reference
+
+| Layout | Available Width | font_size=16 chars/line | font_size=18 chars/line |
+| ------ | --------------- | ----------------------- | ----------------------- |
+| Full-width | 1200px | 100 | 89 |
+| Two-column (single) | 560px | 47 | 41 |
+| Two-column (with padding) | 520px | 43 | 38 |
+| Card content (with padding) | 360px | 30 | 26 |
+
+Use these values as upper bounds. Shorter lines are acceptable when they keep text inside its local card or column.
 
 ## Image-Text Layout Formulas
 
@@ -77,3 +92,4 @@ When a page message includes a `## Template Skeleton` block, follow these rules:
 5. **Content area** — add your page-specific content (text, images, charts) inside the content area boundary only. Do not overflow beyond the content area.
 6. **Colors and fonts** — match the skeleton's color scheme and font-family exactly. Do not substitute different colors or fonts.
 7. **Content pages** — if no skeleton is provided for a content page, follow the color scheme and layout style from the content page skeleton reference provided in the initial context.
+8. **Layout contract** — follow the layout type declared for the page in Section IX. Do not switch a top-bottom page to left-right, or a fixed card grid to another structure, unless the page would otherwise be impossible to render without overflow.

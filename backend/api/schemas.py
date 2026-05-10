@@ -47,6 +47,28 @@ class StyleOverrides(BaseModel):
     density: str | None = None        # "compact" | "normal" | "spacious"
 
 
+class ResearchConfig(BaseModel):
+    """Optional external research enrichment.
+
+    All sources default to OFF. When any source is enabled, related work and/or
+    web discussions are fetched and injected into Pass 1 of the deep analysis
+    so the LLM can position the paper against existing literature. When all
+    sources are OFF, the pipeline runs in pure-LLM mode.
+    """
+
+    arxiv_search_enabled: bool = False
+    semantic_scholar_enabled: bool = False
+    web_search_enabled: bool = False
+    semantic_scholar_api_key: str | None = None
+    web_search_provider: Literal["tavily", "serpapi"] = "tavily"
+    tavily_api_key: str | None = None
+    serpapi_key: str | None = None
+    # Maximum candidates to fetch per source before relevance filtering.
+    max_results_per_source: int = 20
+    # When True, run a lightweight relevance filter pass before injecting findings.
+    relevance_filter: bool = True
+
+
 class GenerationOptions(BaseModel):
     canvas_format: str = "ppt169"
     style: str = "academic"
@@ -55,12 +77,16 @@ class GenerationOptions(BaseModel):
     detail_level: str = "normal"
     icon_library: str = "chunk"  # chunk / tabler-filled / tabler-outline
     timeout_seconds: int | None = Field(default=None, ge=1)
+    max_critic_attempts: int = Field(default=3, ge=1, le=10)
     style_overrides: StyleOverrides | None = None
+    enable_deep_research: bool = False
     enable_visual_critic: bool = False
+    visual_qa_max_attempts: int = Field(default=1, ge=1, le=10)
     enable_icon: bool = False
     enable_icon_rag: bool = False
     gemini_api_key: str | None = None
     template_id: str | None = None  # Template ID from assets/templates/layouts/
+    research_config: ResearchConfig | None = None
 
 
 class GenerateRequest(BaseModel):
